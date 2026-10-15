@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { db, DATA_DIR, UPLOAD_DIR } from './db.js';
 import { hashPassword, verifyPassword } from './password.js';
+import { seedDemo } from './seed.js';
 
 const JASTIP_FEE_RATE = 0.2;
 const APP_FEE_RATE = 0.1;
@@ -543,6 +544,13 @@ app.use((err, _req, res, _next) => {
   if (status === 500) console.error(err);
   res.status(status).json({ error: status === 500 ? 'Terjadi kesalahan server' : err.message });
 });
+
+// Optional: load the demo accounts/orders on a hosted server. Only runs on an empty database,
+// so real data is never overwritten. Set DEMO_PASSWORD to avoid the published default.
+if (process.env.SEED_DEMO === 'true' && db.prepare('SELECT COUNT(*) AS n FROM users').get().n === 0) {
+  seedDemo({ password: process.env.DEMO_PASSWORD });
+  console.log('Loaded demo data (database was empty).');
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   const lan = Object.values(networkInterfaces())
