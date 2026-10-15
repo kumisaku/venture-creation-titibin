@@ -160,6 +160,7 @@ app.use(cors());
 app.use(express.json({ limit: '8mb' }));
 app.use('/uploads', express.static(UPLOAD_DIR));
 
+app.get('/', (_req, res) => res.json({ name: 'TitiBin API', ok: true }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ---------- Auth ----------
