@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "TitiBin",
+    "slug": "titibin",
+    "scheme": "titibin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "id.ac.binus.titibin",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B4F9C",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TitiBin perlu akses galeri untuk mengunggah foto referensi produk."
+        }
+      ]
+    ]
+  }
+}

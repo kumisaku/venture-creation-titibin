@@ -1,0 +1,6 @@
+node_modules/
+.env
+.env*.local
+
+# Backend SQLite database and uploaded photos (recreate with `npm run seed`)
+backend/data/
