@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const DATA_DIR = join(root, 'data');
+// On a host, point DATA_DIR at a persistent volume so the database survives redeploys.
+export const DATA_DIR = process.env.DATA_DIR || join(root, 'data');
 export const UPLOAD_DIR = join(DATA_DIR, 'uploads');
 mkdirSync(UPLOAD_DIR, { recursive: true });
 
