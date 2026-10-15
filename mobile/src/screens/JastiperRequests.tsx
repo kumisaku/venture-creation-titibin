@@ -117,6 +117,7 @@ function IncomingCard({ order, onChanged }: { order: Order; onChanged: () => voi
         <BuyerHeader order={order} />
         <ProductBox order={order} />
         <Row style={{ gap: 8 }}>
+          <IconButton icon="chatbubble-ellipses-outline" size={46} onPress={() => router.push(`/order/${order.id}/chat`)} />
           <Button title="Tolak" variant="danger-soft" icon="close" size="md" disabled={busy} onPress={() => act('reject')} style={{ flex: 1 }} />
           <Button title="Terima Titipan" icon="checkmark" size="md" loading={busy} onPress={() => act('accept')} style={{ flex: 2 }} />
         </Row>

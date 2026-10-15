@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { showAlert } from '@/lib/alert';
 import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { RefreshControl, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { ProductThumb, SegmentProgress, StatusBadge } from '@/components/app';
 import { Button, Card, Chip, Divider, EmptyState, ErrorState, IconButton, Loading, Row, Screen, Text } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -174,12 +174,12 @@ function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }
         </View>
       </Row>
 
-      {order.jastiper && order.status !== 'pending' && (
+      {order.jastiper && (
         <Row style={{ gap: 8 }}>
           <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name="person-outline" size={14} color={colors.primary} />
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text weight="bold" size={13}>
               {order.jastiper.name}
             </Text>
@@ -189,6 +189,17 @@ function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }
               </Text>
             )}
           </View>
+          {!['rejected', 'cancelled'].includes(order.status) && (
+            <Pressable
+              onPress={() => router.push(`/order/${order.id}/chat`)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.primarySoft }}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+              <Text weight="bold" size={12} color={colors.primary}>
+                Chat
+              </Text>
+            </Pressable>
+          )}
         </Row>
       )}
 
