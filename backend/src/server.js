@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { networkInterfaces } from 'node:os';
-import { db, UPLOAD_DIR } from './db.js';
+import { db, DATA_DIR, UPLOAD_DIR } from './db.js';
 import { hashPassword, verifyPassword } from './password.js';
 
 const JASTIP_FEE_RATE = 0.2;
@@ -550,5 +550,6 @@ app.listen(PORT, '0.0.0.0', () => {
     .filter((i) => i && i.family === 'IPv4' && !i.internal)
     .map((i) => `http://${i.address}:${PORT}`);
   console.log(`TitiBin API listening on http://localhost:${PORT}`);
+  console.log(`Data directory: ${DATA_DIR}`);
   if (lan.length) console.log(`On your phone (same Wi-Fi): ${lan.join(', ')}`);
 });

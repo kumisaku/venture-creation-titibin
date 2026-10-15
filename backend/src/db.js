@@ -4,8 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-// On a host, point DATA_DIR at a persistent volume so the database survives redeploys.
-export const DATA_DIR = process.env.DATA_DIR || join(root, 'data');
+// On a host, keep data on a persistent volume so it survives redeploys. Railway sets
+// RAILWAY_VOLUME_MOUNT_PATH when a volume is attached; DATA_DIR overrides it.
+export const DATA_DIR = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || join(root, 'data');
 export const UPLOAD_DIR = join(DATA_DIR, 'uploads');
 mkdirSync(UPLOAD_DIR, { recursive: true });
 
