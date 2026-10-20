@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { RefreshControl, ScrollView, View } from 'react-native';
-import { ProductThumb, StatusBadge } from '@/components/app';
+import { ProductThumb, StatusBadge, TripCapacity } from '@/components/app';
 import { Badge, Button, Card, EmptyState, ErrorState, IconButton, Loading, Row, Screen, ScreenHeader, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { CATEGORIES } from '@/lib/constants';
@@ -10,16 +10,14 @@ import { useApi, useAsyncAction } from '@/lib/hooks';
 import { colors, radius } from '@/lib/theme';
 import type { Order, OrderStatus, Trip } from '@/lib/types';
 
+// Buttons that advance the order. 'accepted' and 'on_the_way' open their own screens instead.
 const NEXT_ACTION: Partial<Record<OrderStatus, string>> = {
-  paid: 'Tandai Sudah Dibeli',
   bought: 'Tiba & Lolos Bea Cukai',
   arrived: 'Menuju Titik Serah Terima',
 };
 
 const WAITING: Partial<Record<OrderStatus, string>> = {
-  accepted: 'Menunggu buyer membayar ke escrow',
-  on_the_way: 'Menunggu buyer scan QR & konfirmasi',
-  completed: 'Selesai — dana escrow dicairkan',
+  completed: 'Selesai — barang sudah diserahkan',
   rejected: 'Request ditolak',
   cancelled: 'Dibatalkan buyer',
 };
@@ -58,9 +56,10 @@ export default function TripDetailScreen() {
                 <Badge key={k} label={CATEGORIES.find((c) => c.key === k)?.label ?? k} tone="blue" />
               ))}
             </Row>
+            <TripCapacity trip={trip} />
             <Row style={{ gap: 10, marginTop: 4 }}>
-              <Stat label="Terisi" value={`${trip.usedKg}/${trip.capacityKg} kg`} />
               <Stat label="Potensi Fee" value={rupiah(trip.potentialFee)} />
+              {trip.negotiationRequests > 0 && <Stat label="Menunggu negosiasi" value={`${trip.negotiationRequests} request`} />}
             </Row>
           </Card>
 
@@ -111,9 +110,29 @@ function TripOrder({ order, onChanged }: { order: Order; onChanged: () => void }
           </Text>
         </View>
       </Row>
+      {order.status === 'bought' && (
+        <Text size={12} weight="semibold" color={order.paid ? colors.green : colors.amber}>
+          {order.paid ? '✓ Buyer sudah membayar' : 'Invoice terkirim — menunggu buyer membayar'}
+        </Text>
+      )}
+      {['arrived', 'on_the_way'].includes(order.status) && !order.paid && (
+        <Text size={12} weight="semibold" color={colors.amber}>
+          Buyer belum membayar — serah terima menunggu pembayaran
+        </Text>
+      )}
       <Row style={{ gap: 8 }}>
-        {order.status === 'pending' ? (
-          <Button title="Tinjau Request" size="sm" onPress={() => router.push(`/order/${order.id}/review`)} style={{ flex: 1 }} />
+        {order.status === 'pending' || order.status === 'negotiation' ? (
+          <Button
+            title={order.status === 'negotiation' ? 'Negosiasi Budget' : 'Tinjau Request'}
+            size="sm"
+            variant={order.status === 'negotiation' ? 'orange' : 'primary'}
+            onPress={() => router.push(`/order/${order.id}/review`)}
+            style={{ flex: 1 }}
+          />
+        ) : order.status === 'accepted' ? (
+          <Button title="Upload Invoice" icon="receipt-outline" size="sm" variant="orange" onPress={() => router.push(`/order/${order.id}/invoice`)} style={{ flex: 1 }} />
+        ) : order.status === 'on_the_way' ? (
+          <Button title="Serah Terima (Scan QR)" icon="qr-code-outline" size="sm" variant="orange" onPress={() => router.push(`/order/${order.id}/handover`)} style={{ flex: 1 }} />
         ) : next ? (
           <Button
             title={next}

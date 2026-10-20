@@ -4,10 +4,10 @@ import { router } from 'expo-router';
 import { Image, Pressable, View } from 'react-native';
 import { fileUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { rupiah, STATUS_META } from '@/lib/format';
+import { plain, rupiah, STATUS_META } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
-import type { Order, OrderStatus } from '@/lib/types';
-import { Avatar, Badge, Divider, Logo, Row, Text } from './ui';
+import type { Order, OrderStatus, Trip } from '@/lib/types';
+import { Avatar, Badge, CapacityBar, Divider, Logo, Row, Text } from './ui';
 
 export function AppTopBar({ greeting = true }: { greeting?: boolean }) {
   const { user } = useAuth();
@@ -122,9 +122,9 @@ export function ProductThumb({ photo, size = 56 }: { photo?: string | null; size
   );
 }
 
-export function CostSummary({ order, title = 'Ringkasan Biaya' }: { order: Pick<Order, 'itemPrice' | 'jastipFee' | 'appFee' | 'quantity'>; title?: string }) {
+export function CostSummary({ order, title = 'Ringkasan Biaya' }: { order: Pick<Order, 'itemPrice' | 'unitPrice' | 'jastipFee' | 'appFee' | 'quantity'>; title?: string }) {
   const rows: [string, number][] = [
-    [`Harga Barang (${order.quantity}x)`, order.itemPrice],
+    [order.quantity > 1 ? `Harga Barang (${order.quantity} x ${plain(order.unitPrice)})` : 'Harga Barang', order.itemPrice],
     ['Fee Jastiper (20%)', order.jastipFee],
     ['Fee Aplikasi (10%)', order.appFee],
   ];
@@ -172,3 +172,26 @@ export function PersonRow({ name, subtitle, size = 34 }: { name: string; subtitl
 
 export const ratingText = (rating: number | null, count: number, unit: string) =>
   rating ? `★ ${rating.toFixed(1)} (${count} ${unit})` : 'Jastiper baru';
+
+/** Luggage weight and spending budget side by side, so both limits are visible on a trip. */
+export function TripCapacity({ trip }: { trip: Pick<Trip, 'capacityKg' | 'usedKg' | 'maxBudget' | 'usedBudget' | 'holdOverBudget'> }) {
+  return (
+    <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, gap: 14 }}>
+      <CapacityBar icon="briefcase-outline" label="Bagasi Terisi" used={trip.usedKg} total={trip.capacityKg} format={(n) => `${Math.round(n * 10) / 10} kg`} />
+      {trip.maxBudget ? (
+        <>
+          <CapacityBar icon="wallet-outline" label="Budget Terpakai" used={trip.usedBudget} total={trip.maxBudget} format={rupiah} tone="orange" />
+          <Text size={11} color={colors.muted}>
+            {trip.holdOverBudget
+              ? 'Request yang melebihi budget ditahan di status Negosiasi.'
+              : 'Request yang melebihi sisa budget otomatis ditolak.'}
+          </Text>
+        </>
+      ) : (
+        <Text size={11} color={colors.muted}>
+          Budget tidak dibatasi.
+        </Text>
+      )}
+    </View>
+  );
+}

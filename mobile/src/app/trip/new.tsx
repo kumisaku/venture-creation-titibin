@@ -3,11 +3,11 @@ import { showAlert } from '@/lib/alert';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
-import { Button, Field, Row, Screen, ScreenHeader, Text, UploadBox } from '@/components/ui';
+import { Button, Checkbox, DateField, Field, MoneyField, Row, Screen, ScreenHeader, Text, UploadBox } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { CATEGORIES } from '@/lib/constants';
-import { maskDate, toIsoDate } from '@/lib/format';
+import { rupiah, todayIso } from '@/lib/format';
 import { useAsyncAction, type PickedImage } from '@/lib/hooks';
 import { colors, radius, shadow } from '@/lib/theme';
 import type { Trip } from '@/lib/types';
@@ -25,6 +25,7 @@ export default function CreateTripScreen() {
     maxBudget: '',
   });
   const [categories, setCategories] = useState<string[]>([]);
+  const [holdOverBudget, setHoldOverBudget] = useState(true);
   const [catalog, setCatalog] = useState<PickedImage | null>(null);
   const set = (key: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
@@ -32,20 +33,19 @@ export default function CreateTripScreen() {
 
   const submit = () =>
     run(async () => {
-      const departDate = toIsoDate(form.depart);
-      const returnDate = toIsoDate(form.ret);
-      if (!departDate || !returnDate) throw new Error('Isi tanggal dengan format dd/mm/yyyy');
+      if (!form.depart || !form.ret) throw new Error('Pilih tanggal keberangkatan dan kepulangan');
       if (!form.destination.includes(',')) throw new Error('Tulis tujuan sebagai "Kota, Negara", cth. Tokyo, Jepang');
       const trip = await api<Trip>('/trips', {
         body: {
           origin: form.origin,
           destination: form.destination,
           stores: form.stores,
-          departDate,
-          returnDate,
+          departDate: form.depart,
+          returnDate: form.ret,
           capacityKg: Number(form.capacity.replace(',', '.')),
           categories,
-          maxBudget: Number(form.maxBudget.replace(/\D/g, '')) || null,
+          maxBudget: Number(form.maxBudget) || null,
+          holdOverBudget: holdOverBudget && Number(form.maxBudget) > 0,
           dropPoint: `Kampus ${form.origin}`,
           catalogPhoto: catalog?.dataUrl,
         },
@@ -70,22 +70,14 @@ export default function CreateTripScreen() {
           <Field label="Negara / kota tujuan" placeholder="Contoh: Tokyo, Jepang" value={form.destination} onChangeText={set('destination')} />
           <Field label="Toko yang akan dikunjungi" placeholder="Contoh: Toko A, Toko B" value={form.stores} onChangeText={set('stores')} />
           <Row style={{ gap: 12 }}>
-            <Field
+            <DateField
               label="Berangkat"
-              placeholder="dd/mm/yyyy"
-              keyboardType="number-pad"
               value={form.depart}
-              onChangeText={(v) => set('depart')(maskDate(v))}
+              min={todayIso()}
+              onChange={(v) => setForm((f) => ({ ...f, depart: v, ret: f.ret && f.ret < v ? '' : f.ret }))}
               style={{ flex: 1 }}
             />
-            <Field
-              label="Kembali"
-              placeholder="dd/mm/yyyy"
-              keyboardType="number-pad"
-              value={form.ret}
-              onChangeText={(v) => set('ret')(maskDate(v))}
-              style={{ flex: 1 }}
-            />
+            <DateField label="Kembali" value={form.ret} min={form.depart || todayIso()} onChange={set('ret')} style={{ flex: 1 }} />
           </Row>
 
           <Text weight="semibold" size={13}>
@@ -131,7 +123,31 @@ export default function CreateTripScreen() {
             })}
           </View>
 
-          <Field label="Max Budget" prefix="Rp" placeholder="Contoh: 50000" keyboardType="number-pad" value={form.maxBudget} onChangeText={set('maxBudget')} />
+          <MoneyField
+            label="Max Budget"
+            placeholder="Contoh: 500.000"
+            hint="Batas total dana yang kamu siapkan untuk membeli titipan semua buyer."
+            value={form.maxBudget}
+            onChangeValue={set('maxBudget')}
+          />
+          {Number(form.maxBudget) > 0 && (
+            <View style={{ gap: 8, padding: 14, borderRadius: radius.md, backgroundColor: colors.primarySoft }}>
+              <Checkbox
+                checked={holdOverBudget}
+                onPress={() => setHoldOverBudget((h) => !h)}
+                label={
+                  <Text weight="semibold" size={13} style={{ flex: 1 }}>
+                    Tahan request yang melebihi budget ke status Negosiasi
+                  </Text>
+                }
+              />
+              <Text size={12} color={colors.textSoft} style={{ lineHeight: 18 }}>
+                {holdOverBudget
+                  ? `Request di atas sisa budget (total ${rupiah(Number(form.maxBudget))}) tidak langsung ditolak. Kamu bisa menambah modal atau menolaknya selama bagasi masih tersedia.`
+                  : 'Request yang melebihi sisa budget akan otomatis ditolak, sama seperti request yang melebihi bagasi.'}
+              </Text>
+            </View>
+          )}
 
           <Button title="CREATE TRIP" iconRight="arrow-forward" loading={busy} onPress={submit} style={{ borderRadius: radius.md, marginTop: 8 }} />
         </ScrollView>

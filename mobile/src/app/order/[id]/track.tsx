@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { showAlert } from '@/lib/alert';
 import { router, useLocalSearchParams } from 'expo-router';
+import QRCode from 'react-native-qrcode-svg';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { ratingText } from '@/components/app';
 import { Avatar, Badge, Button, Card, ErrorState, IconButton, Loading, Row, Screen, ScreenHeader, Text } from '@/components/ui';
@@ -16,7 +17,7 @@ export default function TrackingScreen() {
   const { busy, run } = useAsyncAction();
 
   const confirm = () =>
-    showAlert('Konfirmasi terima barang?', 'Pastikan segel & kondisi barang sudah sesuai. Dana escrow akan dicairkan ke jastiper.', [
+    showAlert('Konfirmasi terima barang?', 'Pastikan segel & kondisi barang sudah sesuai.', [
       { text: 'Batal', style: 'cancel' },
       {
         text: 'Ya, sudah diterima',
@@ -33,15 +34,17 @@ export default function TrackingScreen() {
 
   const city = order.trip?.country ?? order.purchaseLocation;
   const steps = [
-    { title: `Pesanan Dibeli di ${order.purchaseLocation}`, body: 'Verifikasi struk & foto fisik approved' },
+    { title: `Pesanan Dibeli di ${order.purchaseLocation}`, body: 'Jastiper membeli dan mengunggah invoice' },
     { title: 'Tiba di Jakarta & Lolos Bea Cukai', body: 'Barang sudah di Indonesia' },
     { title: 'Menuju Titik Serah Terima Kampus', body: `Jastiper menuju ${order.handoverPoint}` },
-    { title: 'Pemeriksaan Barang & Konfirmasi Terima', body: 'Scan QR di bawah untuk menyelesaikan transaksi' },
+    { title: 'Pemeriksaan Barang & Konfirmasi Terima', body: 'Jastiper scan QR di bawah untuk menyerahkan barang' },
   ];
   // Index of the step currently in progress (0-based); steps before it are done.
-  const current = ({ paid: 0, bought: 1, arrived: 2, on_the_way: 2, completed: 4 } as Record<string, number>)[order.status] ?? 0;
+  const current = ({ accepted: 0, bought: 1, arrived: 2, on_the_way: 2, completed: 4 } as Record<string, number>)[order.status] ?? 0;
   const live = order.status === 'on_the_way';
-  const canConfirm = order.status === 'arrived' || order.status === 'on_the_way';
+  const arrivedOrOnWay = order.status === 'arrived' || order.status === 'on_the_way';
+  const canConfirm = arrivedOrOnWay && order.paid;
+  const awaitingPayment = Boolean(order.invoicePhoto) && !order.paid && ['bought', 'arrived', 'on_the_way'].includes(order.status);
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -95,7 +98,7 @@ export default function TrackingScreen() {
                     {active && live && <Badge label="LIVE" tone="solidOrange" />}
                   </Row>
                   <Text size={12} color={done || active ? colors.muted : colors.faint}>
-                    {i === 0 && order.status === 'paid' ? `Sedang dibelikan di ${city}` : s.body}
+                    {i === 0 && order.status === 'accepted' ? `Sedang dibelikan di ${city}` : s.body}
                   </Text>
                 </View>
               </Row>
@@ -117,15 +120,27 @@ export default function TrackingScreen() {
           </Text>
         </Card>
 
+        {awaitingPayment && (
+          <Card style={{ gap: 10, backgroundColor: colors.orangeSoft }}>
+            <Text weight="bold" size={14} color={colors.orangeText}>
+              Invoice sudah diunggah — saatnya membayar
+            </Text>
+            <Text size={12} color={colors.textSoft}>
+              Bayar lewat QR jastiper. Serah terima barang baru bisa diselesaikan setelah pembayaran.
+            </Text>
+            <Button title="Bayar Sekarang" variant="orange" size="md" icon="wallet-outline" onPress={() => router.push(`/order/${order.id}/pay`)} />
+          </Card>
+        )}
+
         <Card style={{ alignItems: 'center', gap: 12 }}>
           <Badge label="Sistem Serah Terima Otomatis" tone="blue" icon="shield-checkmark" />
           <Text weight="bold" size={17}>
             Campus Handover QR
           </Text>
           <Text size={12} color={colors.muted} style={{ textAlign: 'center' }}>
-            Tunjukkan QR ini ke Jastiper untuk pelepasan escrow
+            Tunjukkan QR ini ke Jastiper saat serah terima barang
           </Text>
-          <HandoverQr code={order.code} dimmed={!canConfirm} />
+          <HandoverQr code={order.code} dimmed={!arrivedOrOnWay || !order.paid} />
           <View style={{ backgroundColor: colors.surface, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 }}>
             <Text weight="semibold" size={12}>
               {order.code}
@@ -134,7 +149,7 @@ export default function TrackingScreen() {
           <Row style={{ gap: 6 }}>
             <Ionicons name="checkmark-circle" size={14} color={colors.green} />
             <Text size={12} color={colors.muted}>
-              Dana aman di Titibin Escrow hingga QR discan
+              {order.paid ? 'Sudah dibayar — QR siap discan jastiper' : 'Bayar dulu sebelum serah terima'}
             </Text>
           </Row>
         </Card>
@@ -159,7 +174,7 @@ export default function TrackingScreen() {
       </ScrollView>
       <View style={{ padding: 16, gap: 8 }}>
         <Text size={12} color={colors.muted} style={{ textAlign: 'center' }}>
-          Periksa segel & kondisi barang sebelum konfirmasi
+          Jastiper akan scan QR-mu. Atau konfirmasi manual setelah memeriksa segel & kondisi barang.
         </Text>
         {order.status === 'completed' ? (
           order.reviewed ? (
@@ -175,35 +190,11 @@ export default function TrackingScreen() {
   );
 }
 
-// Stylised handover code (as in the design): corner markers plus a pattern derived from the order code.
+// The code encodes the order code; the jastiper scans it with the in-app camera.
 function HandoverQr({ code, dimmed }: { code: string; dimmed: boolean }) {
-  const seed = [...code].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const cells = Array.from({ length: 9 }, (_, i) => (i === 4 ? 'center' : [0, 2, 6].includes(i) || (seed >> i) & 1 ? 'mark' : 'blank'));
   return (
-    <View style={{ padding: 14, borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.faint, opacity: dimmed ? 0.4 : 1 }}>
-      <View style={{ width: 180, height: 180, backgroundColor: '#0F172A', borderRadius: 18, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {cells.map((c, i) => (
-          <View
-            key={i}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 6,
-              backgroundColor: c === 'center' ? colors.primary : colors.white,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {c === 'center' ? (
-              <Text weight="bold" size={12} color={colors.white}>
-                TB
-              </Text>
-            ) : c === 'mark' ? (
-              <View style={{ width: 16, height: 16, backgroundColor: '#0F172A' }} />
-            ) : null}
-          </View>
-        ))}
-      </View>
+    <View style={{ padding: 14, borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.faint, opacity: dimmed ? 0.4 : 1, backgroundColor: colors.white }}>
+      <QRCode value={code} size={180} color="#0F172A" backgroundColor="#FFFFFF" />
     </View>
   );
 }

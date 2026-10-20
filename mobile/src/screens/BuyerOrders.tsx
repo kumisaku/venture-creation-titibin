@@ -118,15 +118,17 @@ function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }
         purchaseLocation: order.purchaseLocation,
         store: order.store,
         weightKg: String(order.weightKg),
-        itemPrice: String(order.itemPrice),
+        unitPrice: String(order.unitPrice),
       },
     });
 
+  const awaitingPayment = Boolean(order.invoicePhoto) && !order.paid && ['bought', 'arrived', 'on_the_way'].includes(order.status);
+
   let action: ReactNode = null;
-  if (order.status === 'pending') {
+  if (order.status === 'pending' || order.status === 'negotiation') {
     action = <Button title="Batalkan Request" variant="outline" size="md" icon="close-circle-outline" loading={busy} onPress={cancel} />;
-  } else if (order.status === 'accepted') {
-    action = <Button title="Bayar ke Escrow" variant="orange" size="md" icon="wallet-outline" onPress={() => router.push(`/order/${order.id}/pay`)} />;
+  } else if (awaitingPayment) {
+    action = <Button title="Bayar Sekarang" variant="orange" size="md" icon="wallet-outline" onPress={() => router.push(`/order/${order.id}/pay`)} />;
   } else if (step > 0 && order.status !== 'completed') {
     action = <Button title="Lacak Pesanan" variant="orange" size="md" icon="car-outline" onPress={() => router.push(`/order/${order.id}/track`)} />;
   } else if (order.status === 'completed' && !order.reviewed) {
@@ -204,10 +206,16 @@ function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }
       )}
 
       {order.status === 'pending' && (
-        <Notice tone="amber" icon="time-outline" text="Request kamu sedang ditinjau jastiper. Dana belum ditahan escrow sampai request diterima." />
+        <Notice tone="amber" icon="time-outline" text="Request kamu sedang ditinjau jastiper. Kamu belum perlu membayar apa pun." />
+      )}
+      {order.status === 'negotiation' && (
+        <Notice tone="amber" icon="time-outline" text="Request melebihi budget jastiper, jadi sedang dinegosiasikan. Jastiper bisa menambah modal atau menolak. Kamu bisa membahasnya lewat chat." />
       )}
       {order.status === 'accepted' && (
-        <Notice tone="amber" icon="time-outline" text="Jastiper menerima request-mu! Bayar ke escrow kampus agar barang segera dibelikan." />
+        <Notice tone="amber" icon="time-outline" text="Jastiper menerima request-mu! Kamu bayar nanti, setelah jastiper membelikan barang dan mengunggah invoice." />
+      )}
+      {awaitingPayment && (
+        <Notice tone="amber" icon="time-outline" text="Invoice sudah diunggah jastiper. Silakan bayar lewat QR jastiper." />
       )}
       {(order.status === 'rejected' || order.status === 'cancelled') && (
         <Notice
@@ -236,7 +244,7 @@ function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }
       <Row style={{ justifyContent: 'space-between', gap: 12 }}>
         <View>
           <Text size={11} color={colors.muted}>
-            Total Estimasi
+            Total Estimasi ({order.quantity} pcs)
           </Text>
           <Text weight="extrabold" size={18} color={colors.primary}>
             {rupiah(order.total)}

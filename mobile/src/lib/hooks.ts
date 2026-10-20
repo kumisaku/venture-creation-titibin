@@ -35,22 +35,37 @@ export function useApi<T>(path: string | null) {
 
 export type PickedImage = { dataUrl: string; uri: string; name: string; size: number };
 
-export async function pickImage(): Promise<PickedImage | null> {
+/** Opens the gallery; `limit` > 1 lets the user select several photos at once. */
+export async function pickImages(limit = 1): Promise<PickedImage[]> {
   const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!permission.granted) {
     showAlert('Izin dibutuhkan', 'Izinkan akses galeri untuk mengunggah foto.');
-    return null;
+    return [];
   }
-  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.5 });
-  if (result.canceled || !result.assets[0]?.base64) return null;
-  const asset = result.assets[0];
-  const mime = asset.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
-  return {
-    dataUrl: `data:${mime};base64,${asset.base64}`,
-    uri: asset.uri,
-    name: asset.fileName ?? asset.uri.split('/').pop() ?? 'foto.jpg',
-    size: asset.fileSize ?? Math.round((asset.base64!.length * 3) / 4),
-  };
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    base64: true,
+    quality: 0.5,
+    allowsMultipleSelection: limit > 1,
+    selectionLimit: limit,
+  });
+  if (result.canceled) return [];
+  return result.assets
+    .filter((asset) => asset.base64)
+    .slice(0, limit)
+    .map((asset) => {
+      const mime = asset.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+      return {
+        dataUrl: `data:${mime};base64,${asset.base64}`,
+        uri: asset.uri,
+        name: asset.fileName ?? asset.uri.split('/').pop() ?? 'foto.jpg',
+        size: asset.fileSize ?? Math.round((asset.base64!.length * 3) / 4),
+      };
+    });
+}
+
+export async function pickImage(): Promise<PickedImage | null> {
+  return (await pickImages(1))[0] ?? null;
 }
 
 export function useAsyncAction() {

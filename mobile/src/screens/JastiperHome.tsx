@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { RefreshControl, ScrollView, View } from 'react-native';
-import { AppTopBar } from '@/components/app';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { AppTopBar, TripCapacity } from '@/components/app';
 import { Badge, Button, Card, EmptyState, ErrorState, IconButton, Loading, Row, Screen, Text } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { daysUntil, longDate, rupiah } from '@/lib/format';
@@ -10,6 +10,9 @@ import { colors, radius } from '@/lib/theme';
 import type { Trip } from '@/lib/types';
 
 const AVG_ITEM_KG = 0.8;
+
+// Finished trips (everything handed over) sink to the bottom of the list.
+const byActive = (a: Trip, b: Trip) => Number(a.finished) - Number(b.finished);
 
 export function JastiperHome() {
   const { user } = useAuth();
@@ -28,12 +31,27 @@ export function JastiperHome() {
           </Text>
         </View>
 
+        <Pressable onPress={() => router.push('/earnings')}>
+          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.primarySoft }}>
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="stats-chart" size={20} color={colors.white} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text weight="bold">Pendapatan & Ulasan</Text>
+              <Text size={12} color={colors.muted}>
+                Harian, mingguan, bulanan, tahunan + tip dari buyer
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+          </Card>
+        </Pressable>
+
         {loading ? (
           <Loading />
         ) : error ? (
           <ErrorState message={error} onRetry={reload} />
         ) : trips?.length ? (
-          trips.map((t) => <MyTripCard key={t.id} trip={t} />)
+          [...trips].sort(byActive).map((t) => <MyTripCard key={t.id} trip={t} />)
         ) : (
           <Card style={{ gap: 12 }}>
             <EmptyState icon="airplane-outline" title="Belum ada trip" body="Umumkan perjalananmu supaya teman kampus bisa titip barang." />
@@ -48,15 +66,13 @@ export function JastiperHome() {
 function tripState(trip: Trip) {
   const toDepart = daysUntil(trip.departDate);
   const toReturn = daysUntil(trip.returnDate);
-  if (toReturn < 0) return { label: 'SELESAI', tone: 'gray' as const };
+  if (trip.finished || toReturn < 0) return { label: 'SELESAI', tone: 'gray' as const };
   if (toDepart <= 0) return { label: 'ACTIVE', tone: 'solidOrange' as const };
   return { label: toDepart === 1 ? 'BESOK' : `IN ${toDepart} DAYS`, tone: 'orange' as const };
 }
 
 function MyTripCard({ trip }: { trip: Trip }) {
   const state = tripState(trip);
-  const pct = trip.capacityKg ? trip.usedKg / trip.capacityKg : 0;
-  const left = Math.round((1 - pct) * 100);
   const itemsMin = Math.floor(trip.remainingKg / (AVG_ITEM_KG * 1.5));
   const itemsMax = Math.floor(trip.remainingKg / AVG_ITEM_KG);
 
@@ -79,33 +95,16 @@ function MyTripCard({ trip }: { trip: Trip }) {
         </Text>
       </Row>
 
-      <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, gap: 10 }}>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Row style={{ gap: 6 }}>
-            <Ionicons name="briefcase-outline" size={16} color={colors.primary} />
-            <Text weight="semibold" size={13}>
-              Slot Bagasi Terisi
-            </Text>
-          </Row>
-          <Text weight="extrabold" color={colors.primary}>
-            {trip.usedKg} / {trip.capacityKg} Kg <Text size={12} color={colors.muted}>(Sisa {trip.remainingKg} Kg)</Text>
-          </Text>
-        </Row>
-        <View style={{ height: 8, borderRadius: 4, backgroundColor: colors.primaryTint }}>
-          <View style={{ width: `${Math.min(100, pct * 100)}%`, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
-        </View>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Text weight="semibold" size={11}>
-            {itemsMax > 0 ? `Optimal untuk ${Math.max(1, itemsMin)}–${itemsMax} item lagi` : 'Bagasi penuh'}
-          </Text>
-          <Text weight="semibold" size={11} color={colors.green}>
-            Tersisa {left}% kapasitas
-          </Text>
-        </Row>
-      </View>
+      <TripCapacity trip={trip} />
+      <Text weight="semibold" size={11}>
+        {itemsMax > 0 ? `Bagasi optimal untuk ${Math.max(1, itemsMin)}–${itemsMax} item lagi` : 'Bagasi penuh'}
+      </Text>
 
       {trip.pendingRequests > 0 && (
         <Badge label={`${trip.pendingRequests} request baru menunggu`} tone="orange" icon="mail-unread-outline" />
+      )}
+      {trip.negotiationRequests > 0 && (
+        <Badge label={`${trip.negotiationRequests} request melebihi budget (negosiasi)`} tone="amber" icon="swap-horizontal-outline" />
       )}
 
       <Row style={{ gap: 12 }}>

@@ -4,15 +4,15 @@ import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { AppTopBar, ProductThumb, StatusBadge } from '@/components/app';
 import { Badge, Button, Card, EmptyState, ErrorState, IconButton, Loading, Row, Screen, Text } from '@/components/ui';
 import { api } from '@/lib/api';
-import { progressLabel, rupiah } from '@/lib/format';
+import { plain, progressLabel, rupiah } from '@/lib/format';
 import { useApi, useAsyncAction } from '@/lib/hooks';
 import { colors, radius } from '@/lib/theme';
 import type { Order } from '@/lib/types';
 
 export function JastiperRequests() {
   const { data: orders, error, loading, reload } = useApi<Order[]>('/orders?as=jastiper');
-  const incoming = (orders ?? []).filter((o) => o.status === 'pending');
-  const active = (orders ?? []).filter((o) => ['accepted', 'paid', 'bought', 'arrived', 'on_the_way'].includes(o.status));
+  const incoming = (orders ?? []).filter((o) => ['pending', 'negotiation'].includes(o.status));
+  const active = (orders ?? []).filter((o) => ['accepted', 'bought', 'arrived', 'on_the_way'].includes(o.status));
 
   return (
     <Screen>
@@ -92,7 +92,8 @@ function ProductBox({ order }: { order: Order }) {
         </Text>
         <Row style={{ gap: 10 }}>
           <Text weight="bold" size={12}>
-            Beli: {rupiah(order.itemPrice)}
+            Beli: {order.quantity > 1 ? `${order.quantity} x ${plain(order.unitPrice)} = ` : ''}
+            {rupiah(order.itemPrice)}
           </Text>
           <Text weight="bold" size={12} color={colors.primary}>
             Fee: {rupiah(order.jastipFee)}
@@ -105,7 +106,8 @@ function ProductBox({ order }: { order: Order }) {
 
 function IncomingCard({ order, onChanged }: { order: Order; onChanged: () => void }) {
   const { busy, run } = useAsyncAction();
-  const act = (action: 'accept' | 'reject') =>
+  const negotiating = order.status === 'negotiation';
+  const act = (action: 'accept' | 'reject' | 'topup') =>
     run(async () => {
       await api(`/orders/${order.id}/${action}`, { method: 'POST' });
       onChanged();
@@ -116,10 +118,25 @@ function IncomingCard({ order, onChanged }: { order: Order; onChanged: () => voi
       <Card style={{ gap: 12 }}>
         <BuyerHeader order={order} />
         <ProductBox order={order} />
+        {negotiating && (
+          <Row style={{ gap: 8, backgroundColor: colors.amberSoft, borderRadius: radius.sm, padding: 12, alignItems: 'flex-start' }}>
+            <Ionicons name="swap-horizontal-outline" size={16} color={colors.amber} style={{ marginTop: 1 }} />
+            <Text size={12} color={colors.amber} style={{ flex: 1, lineHeight: 18 }}>
+              Melebihi budget trip{order.budgetShortfall ? ` sebesar ${rupiah(order.budgetShortfall)}` : ''}. Tambah modal untuk menerima, atau tolak pesanan ini.
+            </Text>
+          </Row>
+        )}
         <Row style={{ gap: 8 }}>
           <IconButton icon="chatbubble-ellipses-outline" size={46} onPress={() => router.push(`/order/${order.id}/chat`)} />
           <Button title="Tolak" variant="danger-soft" icon="close" size="md" disabled={busy} onPress={() => act('reject')} style={{ flex: 1 }} />
-          <Button title="Terima Titipan" icon="checkmark" size="md" loading={busy} onPress={() => act('accept')} style={{ flex: 2 }} />
+          <Button
+            title={negotiating ? 'Tambah Modal & Terima' : 'Terima Titipan'}
+            icon="checkmark"
+            size="md"
+            loading={busy}
+            onPress={() => act(negotiating ? 'topup' : 'accept')}
+            style={{ flex: 2 }}
+          />
         </Row>
       </Card>
     </Pressable>
@@ -136,9 +153,16 @@ function ActiveCard({ order }: { order: Order }) {
       <ProductBox order={order} />
       <Row style={{ justifyContent: 'space-between', gap: 8 }}>
         <Text size={12} weight="semibold" color={colors.orangeText} style={{ flex: 1 }}>
-          {order.status === 'accepted' ? 'Menunggu pembayaran buyer' : progressLabel(order.status, order.trip?.country ?? '')}
+          {order.status === 'accepted'
+            ? 'Beli barang lalu upload invoice'
+            : order.status === 'bought' && !order.paid
+              ? 'Invoice terkirim, menunggu pembayaran buyer'
+              : progressLabel(order.status, order.trip?.country ?? '')}
         </Text>
         <IconButton icon="chatbubble-ellipses-outline" size={38} onPress={() => router.push(`/order/${order.id}/chat`)} />
+        {order.status === 'accepted' && (
+          <Button title="Invoice" size="sm" variant="orange" icon="receipt-outline" onPress={() => router.push(`/order/${order.id}/invoice`)} />
+        )}
         {order.trip && <Button title="Kelola" size="sm" iconRight="arrow-forward" onPress={() => router.push(`/trip/${order.trip!.id}`)} />}
       </Row>
     </Card>

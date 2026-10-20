@@ -1,7 +1,10 @@
 import type { OrderStatus } from './types';
 
-export const rupiah = (n: number) => `Rp ${Math.round(n).toLocaleString('id-ID').replace(/,/g, '.')}`;
-export const plain = (n: number) => Math.round(n).toLocaleString('id-ID').replace(/,/g, '.');
+// Thousands separators are added by hand: Hermes' Intl support for id-ID differs per platform.
+export const plain = (n: number) => String(Math.round(n)).replace(/B(?=(d{3})+(?!d))/g, '.');
+export const rupiah = (n: number) => `Rp ${plain(n)}`;
+/** Digits only, for reading a money input back into a number. */
+export const parseMoney = (s: string) => Number(s.replace(/D/g, '')) || 0;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const MONTHS_LONG = [
@@ -50,18 +53,9 @@ export const initials = (name: string) =>
     .map((w) => w[0]!.toUpperCase())
     .join('');
 
-// "dd/mm/yyyy" typed by the user -> "yyyy-mm-dd" for the API.
-export const toIsoDate = (s: string) => {
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s.trim());
-  if (!m) return null;
-  const iso = `${m[3]}-${m[2]}-${m[1]}`;
-  return Number.isNaN(new Date(iso).getTime()) ? null : iso;
-};
-
-export const maskDate = (s: string) => {
-  const digits = s.replace(/\D/g, '').slice(0, 8);
-  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join('/');
-};
+/** Local calendar date as "yyyy-mm-dd" (what the API and the date picker use). */
+export const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const todayIso = () => toIso(new Date());
 
 export const tripTitle = (destination: string, country: string) =>
   destination === country ? country : `${destination}, ${country}`;
@@ -70,8 +64,8 @@ export type StatusTone = 'pending' | 'accepted' | 'rejected' | 'done';
 
 export const STATUS_META: Record<OrderStatus, { label: string; tone: StatusTone }> = {
   pending: { label: 'Pending', tone: 'pending' },
+  negotiation: { label: 'Negosiasi', tone: 'pending' },
   accepted: { label: 'Diterima', tone: 'accepted' },
-  paid: { label: 'Diterima', tone: 'accepted' },
   bought: { label: 'Diterima', tone: 'accepted' },
   arrived: { label: 'Diterima', tone: 'accepted' },
   on_the_way: { label: 'Diterima', tone: 'accepted' },
@@ -82,11 +76,11 @@ export const STATUS_META: Record<OrderStatus, { label: string; tone: StatusTone 
 
 // Progress shown on order cards and the tracking timeline (4 steps).
 export const progressStep = (status: OrderStatus) =>
-  ({ paid: 1, bought: 2, arrived: 3, on_the_way: 3, completed: 4 } as Partial<Record<OrderStatus, number>>)[status] ?? 0;
+  ({ accepted: 1, bought: 2, arrived: 3, on_the_way: 3, completed: 4 } as Partial<Record<OrderStatus, number>>)[status] ?? 0;
 
 export const progressLabel = (status: OrderStatus, location: string) =>
   ({
-    paid: `Sedang dibelikan di ${location}`,
+    accepted: `Sedang dibelikan di ${location}`,
     bought: 'Dalam perjalanan pulang',
     arrived: 'Tiba & lolos bea cukai',
     on_the_way: 'Menuju titik serah terima',

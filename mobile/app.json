@@ -32,6 +32,12 @@
       "expo-router",
       "expo-font",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "TitiBin perlu akses kamera untuk memindai QR serah terima."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "TitiBin perlu akses galeri untuk mengunggah foto referensi produk."

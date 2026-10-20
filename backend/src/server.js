@@ -12,10 +12,18 @@ const JASTIP_FEE_RATE = 0.2;
 const APP_FEE_RATE = 0.1;
 const PORT = Number(process.env.PORT || 4000);
 
-// Order lifecycle. Buyer requests -> jastiper accepts -> buyer pays into escrow ->
-// jastiper buys, flies home, walks to the meeting point -> buyer confirms receipt.
-const JASTIPER_ADVANCE = { paid: 'bought', bought: 'arrived', arrived: 'on_the_way' };
-const ACTIVE_STATUSES = ['accepted', 'paid', 'bought', 'arrived', 'on_the_way', 'completed'];
+// Order lifecycle. Buyer requests (-> 'negotiation' if it exceeds the trip budget and the jastiper
+// chose to hold such requests) -> jastiper accepts -> jastiper buys with their own money and uploads
+// the invoice + their payment QR ('bought') -> buyer pays that QR (paid_at) -> jastiper flies home,
+// walks to the meeting point and scans the buyer's handover QR -> completed. Payment must be done
+// before handover.
+const JASTIPER_ADVANCE = { bought: 'arrived', arrived: 'on_the_way' };
+const ACTIVE_STATUSES = ['accepted', 'bought', 'arrived', 'on_the_way', 'completed'];
+const IN_PROGRESS_STATUSES = ['accepted', 'bought', 'arrived', 'on_the_way'];
+const MAX_PHOTOS = 5;
+// A trip is finished once something was handed over and nothing is left on its way.
+const FINISHED_SQL = `(EXISTS (SELECT 1 FROM orders x WHERE x.trip_id = trips.id AND x.status = 'completed')
+  AND NOT EXISTS (SELECT 1 FROM orders y WHERE y.trip_id = trips.id AND y.status IN ('accepted','bought','arrived','on_the_way')))`;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -63,6 +71,25 @@ function saveUpload(dataUrl) {
   return `/uploads/${name}`;
 }
 
+function savePhotos(list) {
+  const items = Array.isArray(list) ? list.filter(Boolean) : [];
+  if (items.length > MAX_PHOTOS) throw new HttpError(400, `Maksimal ${MAX_PHOTOS} foto referensi`);
+  return items.map(saveUpload);
+}
+
+function usedBudget(tripId) {
+  const placeholders = ACTIVE_STATUSES.map(() => '?').join(',');
+  return db
+    .prepare(`SELECT COALESCE(SUM(item_price), 0) AS total FROM orders WHERE trip_id = ? AND status IN (${placeholders})`)
+    .get(tripId, ...ACTIVE_STATUSES).total;
+}
+
+function isTripFinished(tripId) {
+  return Boolean(db.prepare(`SELECT 1 FROM trips WHERE id = ? AND ${FINISHED_SQL}`).get(tripId));
+}
+
+const idr = (n) => `Rp ${Math.round(n).toLocaleString('en-US').replace(/,/g, '.')}`;
+
 function usedKg(tripId) {
   const placeholders = ACTIVE_STATUSES.map(() => '?').join(',');
   return db
@@ -76,6 +103,8 @@ function serializeTrip(t) {
     .prepare(`SELECT COALESCE(SUM(jastip_fee), 0) AS fee FROM orders WHERE trip_id = ? AND status NOT IN ('rejected','cancelled')`)
     .get(t.id);
   const pending = db.prepare(`SELECT COUNT(*) AS n FROM orders WHERE trip_id = ? AND status = 'pending'`).get(t.id);
+  const negotiating = db.prepare(`SELECT COUNT(*) AS n FROM orders WHERE trip_id = ? AND status = 'negotiation'`).get(t.id);
+  const budgetUsed = usedBudget(t.id);
   return {
     id: t.id,
     origin: t.origin,
@@ -90,6 +119,11 @@ function serializeTrip(t) {
     slotsLeft: t.max_slots ? Math.max(0, t.max_slots - used.n) : null,
     categories: JSON.parse(t.categories),
     maxBudget: t.max_budget,
+    usedBudget: budgetUsed,
+    remainingBudget: t.max_budget ? Math.max(0, t.max_budget - budgetUsed) : null,
+    holdOverBudget: Boolean(t.hold_over_budget),
+    negotiationRequests: negotiating.n,
+    finished: isTripFinished(t.id),
     dropPoint: t.drop_point,
     catalogPhoto: t.catalog_photo,
     potentialFee: earnings.fee,
@@ -109,12 +143,22 @@ function serializeOrder(o) {
     purchaseLocation: o.purchase_location,
     store: o.store,
     weightKg: o.weight_kg,
+    unitPrice: o.unit_price ?? Math.round(o.item_price / o.quantity),
     itemPrice: o.item_price,
     jastipFee: o.jastip_fee,
     appFee: o.app_fee,
     total: o.item_price + o.jastip_fee + o.app_fee,
     handoverPoint: o.handover_point,
     photo: o.photo,
+    photos: JSON.parse(o.photos || '[]'),
+    invoicePhoto: o.invoice_photo,
+    paymentQr: o.payment_qr,
+    invoicedAt: o.invoiced_at,
+    paid: Boolean(o.paid_at),
+    paidAt: o.paid_at,
+    completedAt: o.completed_at,
+    budgetShortfall:
+      o.status === 'negotiation' && trip?.max_budget ? Math.max(0, usedBudget(trip.id) + o.item_price - trip.max_budget) : 0,
     paymentMethod: o.payment_method,
     status: o.status,
     rejectReason: o.reject_reason,
@@ -229,7 +273,7 @@ app.get(
     const u = req.user;
     const trips = db.prepare('SELECT COUNT(*) AS n FROM trips WHERE jastiper_id = ?').get(u.id).n;
     const requests = db.prepare('SELECT COUNT(*) AS n FROM orders WHERE buyer_id = ?').get(u.id).n;
-    return { ...publicUser(u), stats: { trips, requests } };
+    return { ...publicUser(u), paymentQr: u.payment_qr, stats: { trips, requests } };
   }),
 );
 
@@ -259,6 +303,7 @@ app.get(
       .prepare(
         `SELECT * FROM trips
          WHERE return_date >= date('now')
+           AND NOT ${FINISHED_SQL}
            AND jastiper_id != ?
            AND (destination LIKE ? OR country LIKE ? OR stores LIKE ? OR origin LIKE ?)
            AND (? = '' OR country = ?)
@@ -307,8 +352,8 @@ app.post(
     const info = db
       .prepare(
         `INSERT INTO trips (jastiper_id, origin, destination, country, stores, depart_date, return_date,
-          capacity_kg, categories, max_budget, drop_point, catalog_photo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          capacity_kg, categories, max_budget, drop_point, catalog_photo, hold_over_budget)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         req.user.id,
@@ -323,6 +368,7 @@ app.post(
         b.maxBudget ? Number(b.maxBudget) : null,
         String(b.dropPoint ?? `Kampus ${b.origin}`).trim(),
         saveUpload(b.catalogPhoto),
+        b.holdOverBudget && b.maxBudget ? 1 : 0,
       );
     return serializeTrip(db.prepare('SELECT * FROM trips WHERE id = ?').get(Number(info.lastInsertRowid)));
   }),
@@ -349,6 +395,9 @@ app.get(
 
 app.get('/orders/:id', route((req) => serializeOrder(loadOrderFor(req).o)));
 
+const orderById = (id) => serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(id));
+const nowUtc = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+
 app.post(
   '/orders',
   route((req) => {
@@ -358,24 +407,42 @@ app.post(
     }
     const quantity = Math.max(1, Math.floor(Number(b.quantity) || 1));
     const weight = Number(b.weightKg);
-    const price = Math.round(Number(b.itemPrice));
+    // The buyer enters the price of ONE item; totals and fees are computed for the whole quantity.
+    const unitPrice = Math.round(Number(b.unitPrice ?? b.itemPrice));
     if (!(weight > 0)) throw new HttpError(400, 'Estimasi berat wajib diisi');
-    if (!(price > 0)) throw new HttpError(400, 'Estimasi harga barang wajib diisi');
+    if (!(unitPrice > 0)) throw new HttpError(400, 'Estimasi harga barang wajib diisi');
     if (!String(b.handoverPoint ?? '').trim()) throw new HttpError(400, 'Pilih titik serah terima');
+    const subtotal = unitPrice * quantity;
 
     let tripId = null;
+    let status = 'pending';
     if (b.tripId) {
       const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(Number(b.tripId));
       if (!trip) throw new HttpError(404, 'Trip tidak ditemukan');
       if (trip.jastiper_id === req.user.id) throw new HttpError(400, 'Tidak bisa titip di trip sendiri');
+      if (isTripFinished(trip.id) || trip.return_date < new Date().toISOString().slice(0, 10)) {
+        throw new HttpError(409, 'Trip ini sudah selesai');
+      }
+      const remainingKg = trip.capacity_kg - usedKg(trip.id).kg;
+      if (weight > remainingKg) throw new HttpError(409, `Sisa bagasi jastiper hanya ${Math.max(0, remainingKg).toFixed(1)} kg`);
+      if (trip.max_budget) {
+        const remainingBudget = trip.max_budget - usedBudget(trip.id);
+        if (subtotal > remainingBudget) {
+          if (!trip.hold_over_budget) {
+            throw new HttpError(409, `Sisa budget jastiper hanya ${idr(Math.max(0, remainingBudget))}`);
+          }
+          status = 'negotiation';
+        }
+      }
       tripId = trip.id;
     }
 
+    const photos = savePhotos(b.photos ?? (b.photo ? [b.photo] : []));
     const info = db
       .prepare(
         `INSERT INTO orders (code, buyer_id, trip_id, product_name, quantity, purchase_location, store,
-          weight_kg, item_price, jastip_fee, app_fee, handover_point, photo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          weight_kg, unit_price, item_price, jastip_fee, app_fee, handover_point, photo, photos, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         nextOrderCode(),
@@ -386,13 +453,16 @@ app.post(
         b.purchaseLocation.trim(),
         String(b.store ?? '').trim(),
         weight,
-        price,
-        Math.round(price * JASTIP_FEE_RATE),
-        Math.round(price * APP_FEE_RATE),
+        unitPrice,
+        subtotal,
+        Math.round(subtotal * JASTIP_FEE_RATE),
+        Math.round(subtotal * APP_FEE_RATE),
         b.handoverPoint.trim(),
-        saveUpload(b.photo),
+        photos[0] ?? null,
+        JSON.stringify(photos),
+        status,
       );
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(Number(info.lastInsertRowid)));
+    return orderById(Number(info.lastInsertRowid));
   }),
 );
 
@@ -406,8 +476,35 @@ app.post(
     if (o.weight_kg > remaining) {
       throw new HttpError(409, `Sisa bagasi hanya ${Math.max(0, remaining).toFixed(1)} kg`);
     }
+    if (trip.max_budget) {
+      const remainingBudget = trip.max_budget - usedBudget(trip.id);
+      if (o.item_price > remainingBudget) {
+        if (!trip.hold_over_budget) throw new HttpError(409, `Sisa budget hanya ${idr(Math.max(0, remainingBudget))}`);
+        // Held for negotiation: the jastiper can top up the budget or reject.
+        setStatus(o.id, 'negotiation');
+        return orderById(o.id);
+      }
+    }
     setStatus(o.id, 'accepted');
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id));
+    return orderById(o.id);
+  }),
+);
+
+// Jastiper raises the trip budget just enough to cover a held (over-budget) request and accepts it.
+app.post(
+  '/orders/:id/topup',
+  route((req) => {
+    const { o, trip, isJastiper } = loadOrderFor(req);
+    if (!isJastiper) throw new HttpError(403, 'Hanya jastiper yang bisa menambah modal');
+    if (o.status !== 'negotiation') throw new HttpError(409, 'Request ini tidak sedang dinegosiasikan');
+    const remaining = trip.capacity_kg - usedKg(trip.id).kg;
+    if (o.weight_kg > remaining) {
+      throw new HttpError(409, `Sisa bagasi hanya ${Math.max(0, remaining).toFixed(1)} kg`);
+    }
+    const needed = usedBudget(trip.id) + o.item_price;
+    db.prepare('UPDATE trips SET max_budget = MAX(COALESCE(max_budget, 0), ?) WHERE id = ?').run(needed, trip.id);
+    setStatus(o.id, 'accepted');
+    return orderById(o.id);
   }),
 );
 
@@ -416,9 +513,9 @@ app.post(
   route((req) => {
     const { o, isJastiper } = loadOrderFor(req);
     if (!isJastiper) throw new HttpError(403, 'Hanya jastiper yang bisa menolak titipan');
-    if (o.status !== 'pending') throw new HttpError(409, 'Request ini sudah diproses');
+    if (!['pending', 'negotiation'].includes(o.status)) throw new HttpError(409, 'Request ini sudah diproses');
     setStatus(o.id, 'rejected', { reject_reason: String(req.body?.reason || 'Jastiper tidak dapat memenuhi request ini.') });
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id));
+    return orderById(o.id);
   }),
 );
 
@@ -427,23 +524,46 @@ app.post(
   route((req) => {
     const { o, isBuyer } = loadOrderFor(req);
     if (!isBuyer) throw new HttpError(403, 'Hanya pembeli yang bisa membatalkan');
-    if (!['pending', 'accepted'].includes(o.status)) throw new HttpError(409, 'Pesanan yang sudah dibayar tidak bisa dibatalkan');
+    if (!['pending', 'negotiation', 'accepted'].includes(o.status)) {
+      throw new HttpError(409, 'Pesanan yang sudah dibelikan tidak bisa dibatalkan');
+    }
     setStatus(o.id, 'cancelled');
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id));
+    return orderById(o.id);
   }),
 );
 
+// Jastiper bought the item with their own money: upload the receipt and the QR the buyer pays to.
+app.post(
+  '/orders/:id/invoice',
+  route((req) => {
+    const { o, isJastiper } = loadOrderFor(req);
+    if (!isJastiper) throw new HttpError(403, 'Hanya jastiper yang bisa mengunggah invoice');
+    if (!(o.status === 'accepted' || (o.status === 'bought' && !o.paid_at))) {
+      throw new HttpError(409, 'Invoice hanya bisa diunggah setelah request diterima dan sebelum dibayar');
+    }
+    if (!req.body?.invoicePhoto) throw new HttpError(400, 'Unggah foto bukti pembayaran / invoice');
+    const invoice = saveUpload(req.body.invoicePhoto);
+    const newQr = saveUpload(req.body.paymentQr);
+    const qr = newQr ?? req.user.payment_qr;
+    if (!qr) throw new HttpError(400, 'Unggah QR pembayaran milikmu agar buyer bisa membayar');
+    if (newQr) db.prepare('UPDATE users SET payment_qr = ? WHERE id = ?').run(newQr, req.user.id);
+    setStatus(o.id, 'bought', { invoice_photo: invoice, payment_qr: qr, invoiced_at: nowUtc() });
+    return orderById(o.id);
+  }),
+);
+
+// Buyer pays the jastiper's QR after seeing the invoice. The payment itself happens outside the app.
 app.post(
   '/orders/:id/pay',
   route((req) => {
     const { o, isBuyer } = loadOrderFor(req);
     if (!isBuyer) throw new HttpError(403, 'Hanya pembeli yang bisa membayar');
-    if (o.status !== 'accepted') throw new HttpError(409, 'Pesanan belum diterima jastiper');
-    const method = String(req.body?.method ?? '');
-    if (!['qris', 'va', 'binuspay'].includes(method)) throw new HttpError(400, 'Pilih metode pembayaran');
-    // Payment is simulated: funds are marked as held in campus escrow.
-    setStatus(o.id, 'paid', { payment_method: method });
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id));
+    if (o.paid_at) throw new HttpError(409, 'Pesanan ini sudah dibayar');
+    if (!o.invoice_photo || !['bought', 'arrived', 'on_the_way'].includes(o.status)) {
+      throw new HttpError(409, 'Jastiper belum mengunggah invoice');
+    }
+    db.prepare("UPDATE orders SET paid_at = datetime('now'), payment_method = 'qris', updated_at = datetime('now') WHERE id = ?").run(o.id);
+    return orderById(o.id);
   }),
 );
 
@@ -455,7 +575,27 @@ app.post(
     const next = JASTIPER_ADVANCE[o.status];
     if (!next) throw new HttpError(409, 'Status pesanan tidak bisa dimajukan');
     setStatus(o.id, next);
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id));
+    return orderById(o.id);
+  }),
+);
+
+function complete(o) {
+  if (!o.paid_at) throw new HttpError(409, 'Buyer belum membayar, serah terima belum bisa diselesaikan');
+  setStatus(o.id, 'completed', { completed_at: nowUtc() });
+}
+
+// Jastiper scans the buyer's handover QR (which encodes the order code) to hand the item over.
+app.post(
+  '/orders/:id/handover',
+  route((req) => {
+    const { o, isJastiper } = loadOrderFor(req);
+    if (!isJastiper) throw new HttpError(403, 'Hanya jastiper yang bisa menyerahkan barang');
+    if (!['arrived', 'on_the_way'].includes(o.status)) throw new HttpError(409, 'Barang belum siap diserahkan');
+    if (String(req.body?.code ?? '').trim().toUpperCase() !== o.code) {
+      throw new HttpError(400, 'QR tidak cocok dengan pesanan ini');
+    }
+    complete(o);
+    return orderById(o.id);
   }),
 );
 
@@ -465,10 +605,11 @@ app.post(
     const { o, isBuyer } = loadOrderFor(req);
     if (!isBuyer) throw new HttpError(403, 'Hanya pembeli yang bisa konfirmasi penerimaan');
     if (!['arrived', 'on_the_way'].includes(o.status)) throw new HttpError(409, 'Barang belum siap diserahkan');
-    setStatus(o.id, 'completed');
-    return serializeOrder(db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id));
+    complete(o);
+    return orderById(o.id);
   }),
 );
+
 
 app.post(
   '/orders/:id/review',
@@ -496,6 +637,107 @@ app.post(
     );
     return { ok: true };
   }),
+);
+
+// ---------- Jastiper income & reviews ----------
+
+const WIB_OFFSET_MS = 7 * 3600 * 1000;
+const PERIODS = { day: 14, week: 8, month: 12, year: 5 };
+const pad = (n) => String(n).padStart(2, '0');
+const dayKey = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+
+// Start of the day / ISO week (Monday) / month / year containing `ms`, in Jakarta time, as a UTC-based Date.
+function bucketStart(ms, period) {
+  const d = new Date(ms + WIB_OFFSET_MS);
+  const day = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  if (period === 'week') day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  if (period === 'month') day.setUTCDate(1);
+  if (period === 'year') day.setUTCMonth(0, 1);
+  return day;
+}
+
+function stepBack(date, period) {
+  const d = new Date(date);
+  if (period === 'day') d.setUTCDate(d.getUTCDate() - 1);
+  if (period === 'week') d.setUTCDate(d.getUTCDate() - 7);
+  if (period === 'month') d.setUTCMonth(d.getUTCMonth() - 1);
+  if (period === 'year') d.setUTCFullYear(d.getUTCFullYear() - 1);
+  return d;
+}
+
+const parseUtc = (s) => new Date(`${s.replace(' ', 'T')}Z`).getTime();
+
+app.get(
+  '/earnings',
+  route((req) => {
+    const period = Object.hasOwn(PERIODS, req.query.period) ? req.query.period : 'day';
+    const fees = db
+      .prepare(
+        `SELECT o.jastip_fee AS fee, COALESCE(o.completed_at, o.updated_at) AS at
+         FROM orders o JOIN trips t ON t.id = o.trip_id
+         WHERE t.jastiper_id = ? AND o.status = 'completed'`,
+      )
+      .all(req.user.id);
+    const tips = db
+      .prepare('SELECT tip, created_at AS at FROM reviews WHERE jastiper_id = ? AND tip > 0')
+      .all(req.user.id);
+    const pending = db
+      .prepare(
+        `SELECT COALESCE(SUM(o.jastip_fee), 0) AS fee FROM orders o JOIN trips t ON t.id = o.trip_id
+         WHERE t.jastiper_id = ? AND o.status IN ('accepted','bought','arrived','on_the_way')`,
+      )
+      .get(req.user.id).fee;
+
+    // Newest bucket first while building, then reversed to chronological order.
+    const series = [];
+    let cursor = bucketStart(Date.now(), period);
+    for (let i = 0; i < PERIODS[period]; i++) {
+      series.push({ key: dayKey(cursor), fee: 0, tip: 0, orders: 0 });
+      cursor = stepBack(cursor, period);
+    }
+    series.reverse();
+    const index = new Map(series.map((b, i) => [b.key, i]));
+    const add = (at, field, amount, counts) => {
+      const bucket = series[index.get(dayKey(bucketStart(parseUtc(at), period)))];
+      if (!bucket) return;
+      bucket[field] += amount;
+      if (counts) bucket.orders += 1;
+    };
+    for (const f of fees) add(f.at, 'fee', f.fee, true);
+    for (const t of tips) add(t.at, 'tip', t.tip, false);
+
+    const sum = (rows) => ({ fee: rows.reduce((a, r) => a + r.fee, 0), tip: rows.reduce((a, r) => a + r.tip, 0), orders: rows.reduce((a, r) => a + r.orders, 0) });
+    const withTotal = (t) => ({ ...t, total: t.fee + t.tip });
+    return {
+      period,
+      series: series.map(withTotal),
+      range: withTotal(sum(series)),
+      allTime: withTotal({
+        fee: fees.reduce((a, r) => a + r.fee, 0),
+        tip: tips.reduce((a, r) => a + r.tip, 0),
+        orders: fees.length,
+      }),
+      pendingFee: pending,
+    };
+  }),
+);
+
+// Reviews (with tips) that buyers left for the signed-in jastiper.
+app.get(
+  '/reviews/mine',
+  route((req) =>
+    db
+      .prepare(
+        `SELECT r.order_id AS orderId, r.rating, r.tags, r.text, r.tip, r.created_at AS createdAt,
+                o.code, o.product_name AS productName, u.name AS buyerName
+         FROM reviews r
+         JOIN orders o ON o.id = r.order_id
+         JOIN users u ON u.id = r.reviewer_id
+         WHERE r.jastiper_id = ? ORDER BY r.created_at DESC, r.order_id DESC`,
+      )
+      .all(req.user.id)
+      .map((r) => ({ ...r, tags: JSON.parse(r.tags) })),
+  ),
 );
 
 // ---------- Chat ----------

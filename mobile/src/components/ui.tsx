@@ -17,8 +17,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PickedImage } from '@/lib/hooks';
-import { pickImage } from '@/lib/hooks';
-import { initials } from '@/lib/format';
+import { pickImage, pickImages } from '@/lib/hooks';
+import { initials, longDate, plain, toIso, todayIso } from '@/lib/format';
 import { colors, fonts, radius, shadow } from '@/lib/theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -560,6 +560,246 @@ export function UploadBox({
           <IconButton icon="trash-outline" color={colors.textSoft} bg={colors.white} size={36} onPress={() => onChange(null)} />
         </View>
       )}
+    </View>
+  );
+}
+
+/** Rupiah input that shows thousands separators ("1.250.000") while typing. `value` holds digits only. */
+export function MoneyField({
+  value,
+  onChangeValue,
+  ...rest
+}: Omit<ComponentProps<typeof Field>, 'value' | 'onChangeText' | 'prefix' | 'keyboardType'> & {
+  value: string;
+  onChangeValue: (digits: string) => void;
+}) {
+  const digits = value.replace(/\D/g, '');
+  return (
+    <Field
+      prefix="Rp"
+      keyboardType="number-pad"
+      {...rest}
+      value={digits ? plain(Number(digits)) : ''}
+      onChangeText={(text) => onChangeValue(text.replace(/\D/g, '').replace(/^0+/, '').slice(0, 12))}
+    />
+  );
+}
+
+const WEEKDAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+/** Date input that opens a calendar. `value`/`min` are "yyyy-mm-dd". */
+export function DateField({
+  label,
+  required,
+  value,
+  min,
+  placeholder = 'Pilih tanggal',
+  onChange,
+  style,
+}: {
+  label?: string;
+  required?: boolean;
+  value: string;
+  min?: string;
+  placeholder?: string;
+  onChange: (iso: string) => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState({ year: 2000, month: 0 });
+
+  const show = () => {
+    const start = value || min || todayIso();
+    const d = new Date(`${start}T00:00:00`);
+    setView({ year: d.getFullYear(), month: d.getMonth() });
+    setOpen(true);
+  };
+  const shift = (delta: number) =>
+    setView(({ year, month }) => {
+      const d = new Date(year, month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+
+  const offset = (new Date(view.year, view.month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
+  const cells: (number | null)[] = [...Array<null>(offset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  const today = todayIso();
+
+  return (
+    <View style={[{ gap: 6 }, style]}>
+      {label && (
+        <Text weight="semibold" size={13}>
+          {label}
+          {required ? <Text color={colors.red}> *</Text> : null}
+        </Text>
+      )}
+      <Pressable
+        onPress={show}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: colors.white,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: 14,
+          minHeight: 50,
+          gap: 10,
+        }}
+      >
+        <Ionicons name="calendar-outline" size={18} color={colors.muted} />
+        <Text weight="medium" color={value ? colors.text : colors.faint} style={{ flex: 1 }} numberOfLines={1}>
+          {value ? longDate(value) : placeholder}
+        </Text>
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'center', padding: 20 }}>
+          <Pressable style={{ backgroundColor: colors.white, borderRadius: 24, padding: 16, gap: 12, width: '100%', maxWidth: 400, alignSelf: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <IconButton icon="chevron-back" size={36} onPress={() => shift(-1)} />
+              <Text weight="bold" size={16}>
+                {MONTH_NAMES[view.month]} {view.year}
+              </Text>
+              <IconButton icon="chevron-forward" size={36} onPress={() => shift(1)} />
+            </View>
+            <View style={{ flexDirection: 'row' }}>
+              {WEEKDAYS.map((d) => (
+                <Text key={d} weight="semibold" size={11} color={colors.muted} style={{ width: `${100 / 7}%`, textAlign: 'center' }}>
+                  {d}
+                </Text>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+              {cells.map((day, i) => {
+                if (day === null) return <View key={`blank-${i}`} style={{ width: `${100 / 7}%`, height: 42 }} />;
+                const iso = toIso(new Date(view.year, view.month, day));
+                const disabled = Boolean(min) && iso < min!;
+                const selected = iso === value;
+                return (
+                  <View key={iso} style={{ width: `${100 / 7}%`, height: 42, alignItems: 'center', justifyContent: 'center' }}>
+                    <Pressable
+                      disabled={disabled}
+                      onPress={() => {
+                        onChange(iso);
+                        setOpen(false);
+                      }}
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: selected ? colors.primary : 'transparent',
+                        borderWidth: iso === today && !selected ? 1.5 : 0,
+                        borderColor: colors.orange,
+                      }}
+                    >
+                      <Text weight={selected ? 'bold' : 'medium'} color={selected ? colors.white : disabled ? colors.faint : colors.text}>
+                        {day}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+            <Button title="Tutup" variant="outline" size="md" onPress={() => setOpen(false)} />
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+/** Grid of up to `max` reference photos with remove buttons and an add tile. */
+export function MultiPhotoPicker({ value, onChange, max = 5 }: { value: PickedImage[]; onChange: (v: PickedImage[]) => void; max?: number }) {
+  const add = async () => {
+    const picked = await pickImages(max - value.length);
+    if (picked.length) onChange([...value, ...picked].slice(0, max));
+  };
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+        {value.map((img, i) => (
+          <View key={`${img.uri}-${i}`} style={{ width: 84, height: 84, borderRadius: 14, overflow: 'hidden', backgroundColor: colors.surface }}>
+            <Image source={{ uri: img.uri }} style={{ width: 84, height: 84 }} />
+            <Pressable
+              onPress={() => onChange(value.filter((_, j) => j !== i))}
+              hitSlop={6}
+              style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: '#000A', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Ionicons name="close" size={14} color={colors.white} />
+            </Pressable>
+          </View>
+        ))}
+        {value.length < max && (
+          <Pressable
+            onPress={add}
+            style={{
+              width: 84,
+              height: 84,
+              borderRadius: 14,
+              borderWidth: 1.5,
+              borderStyle: 'dashed',
+              borderColor: '#B9C6DD',
+              backgroundColor: '#F4F7FD',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+            }}
+          >
+            <Ionicons name="add" size={26} color={colors.primary} />
+            <Text size={10} weight="semibold" color={colors.primary}>
+              Tambah
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      <Text size={12} color={colors.muted}>
+        {value.length}/{max} foto • JPG, PNG maks. 5MB per foto.
+      </Text>
+    </View>
+  );
+}
+
+/** One progress bar with a label row, used for luggage weight and spending budget. */
+export function CapacityBar({
+  icon,
+  label,
+  used,
+  total,
+  format,
+  tone = 'primary',
+}: {
+  icon: IconName;
+  label: string;
+  used: number;
+  total: number;
+  format: (n: number) => string;
+  tone?: 'primary' | 'orange';
+}) {
+  const pct = total > 0 ? Math.min(1, used / total) : 0;
+  const full = total > 0 && used >= total;
+  const fill = full ? colors.red : tone === 'orange' ? colors.orange : colors.primary;
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Ionicons name={icon} size={16} color={fill} />
+          <Text weight="semibold" size={13}>
+            {label}
+          </Text>
+        </View>
+        <Text weight="bold" size={12} color={fill} style={{ flexShrink: 1, textAlign: 'right' }}>
+          {format(used)} / {format(total)}{' '}
+          <Text size={11} color={colors.muted}>
+            (sisa {format(Math.max(0, total - used))})
+          </Text>
+        </Text>
+      </View>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: colors.primaryTint }}>
+        <View style={{ width: `${pct * 100}%`, height: 8, borderRadius: 4, backgroundColor: fill }} />
+      </View>
     </View>
   );
 }

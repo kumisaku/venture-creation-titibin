@@ -1,6 +1,6 @@
 // Resets the database and fills it with the demo data shown in the Figma screens.
 // Every seeded account uses the password below.
-import { db } from './db.js';
+import { db, migrateOrders } from './db.js';
 import { hashPassword } from './password.js';
 
 export const DEFAULT_DEMO_PASSWORD = 'titibin123';
@@ -103,7 +103,7 @@ export function seedDemo({ password = DEFAULT_DEMO_PASSWORD, reset = false } = {
     [kevinS, 'Oke, meeting point di Meja 14. Siapin QR serah terimanya ya.', '2026-10-15 13:07:00'],
   ].forEach(([sender, text, at]) => insertMsg.run(blindbox, sender, text, at));
 
-
+  migrateOrders();
   return password;
 }
 

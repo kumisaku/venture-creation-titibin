@@ -3,7 +3,8 @@ import { showAlert } from '@/lib/alert';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
-import { Card, Field, Row, Screen, ScreenHeader, SelectField, Text, UploadBox, Button } from '@/components/ui';
+import { TripCapacity } from '@/components/app';
+import { Button, Card, Field, MoneyField, MultiPhotoPicker, Row, Screen, ScreenHeader, SelectField, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { APP_FEE_RATE, HANDOVER_POINTS, JASTIP_FEE_RATE } from '@/lib/constants';
 import { plain, rupiah, tripTitle } from '@/lib/format';
@@ -18,10 +19,13 @@ type Params = {
   purchaseLocation?: string;
   store?: string;
   weightKg?: string;
-  itemPrice?: string;
+  unitPrice?: string;
 };
 
-const tripOption = (t: Trip) => `${t.jastiper.name} • ${tripTitle(t.destination, t.country)} (sisa ${t.remainingKg} kg)`;
+const tripOption = (t: Trip) =>
+  `${t.jastiper.name} • ${tripTitle(t.destination, t.country)} (sisa ${t.remainingKg} kg${
+    t.remainingBudget != null ? `, budget ${rupiah(t.remainingBudget)}` : ''
+  })`;
 
 export default function ItemRequestScreen() {
   const params = useLocalSearchParams<Params>();
@@ -34,8 +38,8 @@ export default function ItemRequestScreen() {
   const [location, setLocation] = useState(params.purchaseLocation ?? '');
   const [store, setStore] = useState(params.store ?? '');
   const [weight, setWeight] = useState(params.weightKg ?? '');
-  const [price, setPrice] = useState(params.itemPrice ?? '');
-  const [photo, setPhoto] = useState<PickedImage | null>(null);
+  const [price, setPrice] = useState(params.unitPrice ?? '');
+  const [photos, setPhotos] = useState<PickedImage[]>([]);
   const [handover, setHandover] = useState('');
 
   const trip = trips?.find((t) => t.id === tripId) ?? null;
@@ -47,17 +51,22 @@ export default function ItemRequestScreen() {
     setHandover((h) => h || trip.dropPoint);
   }, [trip]);
 
-  const priceNum = Number(price.replace(/\D/g, '')) || 0;
-  const jastipFee = Math.round(priceNum * JASTIP_FEE_RATE);
-  const appFee = Math.round(priceNum * APP_FEE_RATE);
-  const total = priceNum + jastipFee + appFee;
+  // The price field holds the price of ONE item; everything below is multiplied by the quantity.
+  const unitPrice = Number(price) || 0;
+  const subtotal = unitPrice * quantity;
+  const jastipFee = Math.round(subtotal * JASTIP_FEE_RATE);
+  const appFee = Math.round(subtotal * APP_FEE_RATE);
+  const total = subtotal + jastipFee + appFee;
+  const overBudget = Boolean(trip?.maxBudget) && subtotal > (trip?.remainingBudget ?? 0);
 
   const submit = () =>
     run(async () => {
       if (!tripId) throw new Error('Pilih trip jastiper terlebih dahulu');
       const w = Number(weight.replace(',', '.'));
       if (trip && w > trip.remainingKg) throw new Error(`Sisa bagasi jastiper hanya ${trip.remainingKg} kg`);
-      if (trip?.maxBudget && priceNum > trip.maxBudget) throw new Error(`Budget maksimal trip ini ${rupiah(trip.maxBudget)}`);
+      if (overBudget && trip && !trip.holdOverBudget) {
+        throw new Error(`Sisa budget jastiper hanya ${rupiah(trip.remainingBudget ?? 0)}. Kurangi jumlah atau harga barang.`);
+      }
       const order = await api<Order>('/orders', {
         body: {
           tripId,
@@ -66,12 +75,16 @@ export default function ItemRequestScreen() {
           purchaseLocation: location,
           store,
           weightKg: w,
-          itemPrice: priceNum,
+          unitPrice,
           handoverPoint: handover,
-          photo: photo?.dataUrl,
+          photos: photos.map((p) => p.dataUrl),
         },
       });
-      showAlert('Request terkirim', `Pesanan #${order.code} sedang ditinjau jastiper.`);
+      if (order.status === 'negotiation') {
+        showAlert('Request masuk negosiasi', `Pesanan #${order.code} melebihi budget jastiper, jadi ditahan sampai jastiper memutuskan.`);
+      } else {
+        showAlert('Request terkirim', `Pesanan #${order.code} sedang ditinjau jastiper.`);
+      }
       router.replace('/orders');
     });
 
@@ -94,10 +107,12 @@ export default function ItemRequestScreen() {
               onChange={(label) => setTripId(trips?.find((t) => tripOption(t) === label)?.id ?? null)}
             />
             {trip && (
-              <Text size={12} color={colors.muted}>
-                Target belanja: {trip.stores || '-'}
-                {trip.maxBudget ? ` • Max budget ${rupiah(trip.maxBudget)}` : ''}
-              </Text>
+              <>
+                <Text size={12} color={colors.muted}>
+                  Target belanja: {trip.stores || '-'}
+                </Text>
+                <TripCapacity trip={trip} />
+              </>
             )}
           </Card>
 
@@ -145,29 +160,36 @@ export default function ItemRequestScreen() {
               value={store}
               onChangeText={setStore}
             />
-            <Field label="Estimasi Berat Barang" required placeholder="0.4" keyboardType="decimal-pad" suffix="kg" value={weight} onChangeText={setWeight} />
+            <Field
+              label="Estimasi Berat Barang (total)"
+              required
+              placeholder="0.4"
+              keyboardType="decimal-pad"
+              suffix="kg"
+              value={weight}
+              onChangeText={setWeight}
+            />
           </Card>
 
           <Card style={{ gap: 14 }}>
             <Text weight="bold" size={18}>
               Foto Referensi Produk
             </Text>
-            <UploadBox value={photo} onChange={setPhoto} />
+            <MultiPhotoPicker value={photos} onChange={setPhotos} max={5} />
           </Card>
 
           <Card style={{ gap: 14 }}>
             <Text weight="bold" size={18}>
               Estimasi Biaya & Fee Jastip
             </Text>
-            <Field
-              label="Estimasi Harga Barang Asli"
+            <MoneyField
+              label="Estimasi Harga Barang Asli (per item)"
               required
               rightLabel="Konversi IDR"
-              prefix="Rp"
-              keyboardType="number-pad"
               placeholder="0"
-              value={priceNum ? plain(priceNum) : ''}
-              onChangeText={setPrice}
+              hint={quantity > 1 ? `Dikali ${quantity} pcs = ${rupiah(subtotal)}` : undefined}
+              value={price}
+              onChangeValue={setPrice}
               inputStyle={{ fontSize: 18 }}
             />
             <Field label="Fee Jastip (20%)" prefix="Rp" editable={false} value={plain(jastipFee)} inputStyle={{ fontSize: 18 }} />
@@ -180,7 +202,7 @@ export default function ItemRequestScreen() {
             </Text>
             {(
               [
-                [`Harga Barang (${quantity}x)`, priceNum],
+                [quantity > 1 ? `Harga Barang (${quantity} x ${plain(unitPrice)})` : 'Harga Barang', subtotal],
                 ['Fee Traveler (Jastip)', jastipFee],
                 ['Fee Aplikasi', appFee],
               ] as const
@@ -201,12 +223,32 @@ export default function ItemRequestScreen() {
             <Text weight="extrabold" size={24} color={colors.orangeText}>
               {rupiah(total)}
             </Text>
+            {overBudget && trip?.holdOverBudget && (
+              <View style={{ backgroundColor: colors.amberSoft, borderRadius: radius.sm, padding: 12, gap: 4 }}>
+                <Text weight="bold" size={12} color={colors.amber}>
+                  Melebihi sisa budget jastiper
+                </Text>
+                <Text size={12} color={colors.amber}>
+                  Request akan masuk status Negosiasi sampai jastiper menambah modal atau menolaknya.
+                </Text>
+              </View>
+            )}
+            {overBudget && trip && !trip.holdOverBudget && (
+              <View style={{ backgroundColor: colors.redSoft, borderRadius: radius.sm, padding: 12, gap: 4 }}>
+                <Text weight="bold" size={12} color={colors.red}>
+                  Melebihi sisa budget jastiper
+                </Text>
+                <Text size={12} color={colors.red}>
+                  Sisa budget hanya {rupiah(trip.remainingBudget ?? 0)}. Kurangi jumlah atau harga barang.
+                </Text>
+              </View>
+            )}
             <View style={{ backgroundColor: colors.white, borderRadius: radius.sm, padding: 12, gap: 4 }}>
               <Text weight="bold" size={12}>
-                Dana aman di Escrow Kampus BINUS
+                Bayar setelah invoice
               </Text>
               <Text size={12} color={colors.textSoft}>
-                Uang hanya akan dilepas ke teman jastiper setelah barang kamu terima & scan verifikasi QR Handover di kampus.
+                Kamu belum perlu membayar sekarang. Jastiper membelikan dulu, lalu mengunggah invoice dan QR pembayaran — baru setelah itu kamu membayar.
               </Text>
             </View>
           </View>

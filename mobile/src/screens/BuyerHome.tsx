@@ -6,7 +6,7 @@ import { Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-na
 import { AppTopBar, DestinationBanner, ratingText } from '@/components/app';
 import { Badge, Button, Card, Chip, EmptyState, ErrorState, Loading, Row, Screen, Text, type IconName } from '@/components/ui';
 import { POPULAR_COUNTRIES } from '@/lib/constants';
-import { departLabel, tripTitle } from '@/lib/format';
+import { departLabel, rupiah, tripTitle } from '@/lib/format';
 import { useApi } from '@/lib/hooks';
 import { colors, fonts, radius } from '@/lib/theme';
 import type { Trip } from '@/lib/types';
@@ -34,12 +34,12 @@ export function BuyerHome() {
       >
         <LinearGradient colors={[colors.primary, '#1565C0']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: radius.lg, padding: 18, gap: 10, overflow: 'hidden' }}>
           <Ionicons name="briefcase-outline" size={90} color="#FFFFFF1A" style={{ position: 'absolute', right: -8, bottom: -10 }} />
-          <Badge label="100% Binusian Escrow Guaranteed" tone="green" icon="shield-checkmark" />
+          <Badge label="Sesama Binusian, Bayar Setelah Invoice" tone="green" icon="shield-checkmark" />
           <Text weight="extrabold" size={21} color={colors.white} style={{ lineHeight: 28 }}>
             Mau titip apa hari ini dari luar negeri?
           </Text>
           <Text size={13} color="#DCE8F8" style={{ lineHeight: 20 }}>
-            Belanja aman lewat teman satu kampus. Biaya transparan, dana tertahan di rekening bersama kampus sampai pesanan tiba.
+            Belanja aman lewat teman satu kampus. Biaya transparan, dan kamu baru membayar setelah jastiper membelikan barang dan mengirim invoice.
           </Text>
         </LinearGradient>
 
@@ -108,14 +108,14 @@ export function BuyerHome() {
 
         <View style={{ gap: 10 }}>
           <Text weight="bold" size={15}>
-            Cara Kerja Titibin Escrow
+            Cara Kerja TitiBin
           </Text>
           <Row style={{ gap: 8, alignItems: 'stretch' }}>
             {(
               [
                 ['checkmark-done-outline', '1. Request', 'Pilih trip & rincian pesanan'],
-                ['wallet-outline', '2. Escrow', 'Dana aman tertahan di kampus'],
-                ['qr-code-outline', '3. Serah Terima', 'Scan QR di Binus & dana cair'],
+                ['receipt-outline', '2. Invoice', 'Bayar setelah jastiper kirim invoice'],
+                ['qr-code-outline', '3. Serah Terima', 'Jastiper scan QR kamu di kampus'],
               ] as [IconName, string, string][]
             ).map(([icon, title, body]) => (
               <Card key={title} style={{ flex: 1, padding: 12, alignItems: 'center', gap: 6 }}>
@@ -176,8 +176,9 @@ function TripCard({ trip }: { trip: Trip }) {
             </Text>
           </View>
         </Row>
-        <Row style={{ gap: 6 }}>
+        <Row style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 1 }}>
           <Badge label={`Sisa: ${trip.remainingKg} kg`} tone="gray" icon="bag-outline" />
+          {trip.remainingBudget != null && <Badge label={`Budget: ${rupiah(trip.remainingBudget)}`} tone="gray" icon="wallet-outline" />}
           {trip.slotsLeft != null && <Badge label={`${trip.slotsLeft} slot`} tone="orange" />}
         </Row>
       </Row>
