@@ -3,10 +3,10 @@ import { showAlert } from '@/lib/alert';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
-import { Button, Checkbox, DateField, Field, MoneyField, Row, Screen, ScreenHeader, Text, UploadBox } from '@/components/ui';
+import { Button, Checkbox, Chip, DateField, Field, MoneyField, Row, Screen, ScreenHeader, Text, UploadBox } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { CATEGORIES } from '@/lib/constants';
+import { CATEGORIES, REGIONS } from '@/lib/constants';
 import { rupiah, todayIso } from '@/lib/format';
 import { useAsyncAction, type PickedImage } from '@/lib/hooks';
 import { colors, radius, shadow } from '@/lib/theme';
@@ -17,26 +17,33 @@ export default function CreateTripScreen() {
   const { busy, run } = useAsyncAction();
   const [form, setForm] = useState({
     origin: user?.campus ?? '',
+    region: '',
     destination: '',
+    eventName: '',
     stores: '',
     depart: '',
     ret: '',
     capacity: '',
     maxBudget: '',
   });
+  const [kind, setKind] = useState<'trip' | 'event'>('trip');
   const [categories, setCategories] = useState<string[]>([]);
   const [holdOverBudget, setHoldOverBudget] = useState(true);
   const [catalog, setCatalog] = useState<PickedImage | null>(null);
   const set = (key: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
-  const filled = [form.origin, form.destination, form.stores, form.depart, form.ret, form.capacity, categories.length ? 'x' : '', form.maxBudget].filter(Boolean).length;
+  const filled = [form.origin, form.region, form.destination, kind === 'event' ? form.eventName : 'x', form.stores, form.depart, form.ret, form.capacity, categories.length ? 'x' : '', form.maxBudget].filter(Boolean).length;
 
   const submit = () =>
     run(async () => {
-      if (!form.depart || !form.ret) throw new Error('Pilih tanggal keberangkatan dan kepulangan');
-      if (!form.destination.includes(',')) throw new Error('Tulis tujuan sebagai "Kota, Negara", cth. Tokyo, Jepang');
+      if (!form.depart || !form.ret) throw new Error('Pilih tanggal mulai dan selesai');
+      if (!form.region) throw new Error('Pilih daerah tujuan');
+      if (kind === 'event' && !form.eventName.trim()) throw new Error('Isi nama event');
       const trip = await api<Trip>('/trips', {
         body: {
+          kind,
+          region: form.region,
+          eventName: form.eventName,
           origin: form.origin,
           destination: form.destination,
           stores: form.stores,
@@ -60,24 +67,44 @@ export default function CreateTripScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: 20, gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.surface }}>
-            <View style={{ width: `${(filled / 8) * 100}%`, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
+            <View style={{ width: `${(filled / 10) * 100}%`, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
           </View>
           <Text size={12} color={colors.muted}>
             Bagikan detail perjalananmu kepada Buyer.
           </Text>
 
           <Field label="Asal kampus / kota" placeholder="Contoh: Kemanggisan" value={form.origin} onChangeText={set('origin')} />
-          <Field label="Negara / kota tujuan" placeholder="Contoh: Tokyo, Jepang" value={form.destination} onChangeText={set('destination')} />
+          <Row style={{ gap: 8 }}>
+            <Chip label="Trip biasa" icon="cart-outline" selected={kind === 'trip'} onPress={() => setKind('trip')} />
+            <Chip label="Event" icon="ticket-outline" selected={kind === 'event'} onPress={() => setKind('event')} />
+          </Row>
+          {kind === 'event' && (
+            <Field label="Nama event" placeholder="Contoh: Pekan Raya Jakarta" value={form.eventName} onChangeText={set('eventName')} />
+          )}
+          <Text weight="semibold" size={13}>
+            Daerah
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {REGIONS.map((r) => (
+              <Chip key={r} label={r} icon="location-outline" selected={form.region === r} onPress={() => set('region')(r)} />
+            ))}
+          </View>
+          <Field
+            label={kind === 'event' ? 'Lokasi event' : 'Tempat tujuan'}
+            placeholder={kind === 'event' ? 'Contoh: JIEXPO Kemayoran' : 'Contoh: Pasar Baru, Dago'}
+            value={form.destination}
+            onChangeText={set('destination')}
+          />
           <Field label="Toko yang akan dikunjungi" placeholder="Contoh: Toko A, Toko B" value={form.stores} onChangeText={set('stores')} />
           <Row style={{ gap: 12 }}>
             <DateField
-              label="Berangkat"
+              label={kind === 'event' ? 'Mulai' : 'Berangkat'}
               value={form.depart}
               min={todayIso()}
               onChange={(v) => setForm((f) => ({ ...f, depart: v, ret: f.ret && f.ret < v ? '' : f.ret }))}
               style={{ flex: 1 }}
             />
-            <DateField label="Kembali" value={form.ret} min={form.depart || todayIso()} onChange={set('ret')} style={{ flex: 1 }} />
+            <DateField label={kind === 'event' ? 'Selesai' : 'Kembali'} value={form.ret} min={form.depart || todayIso()} onChange={set('ret')} style={{ flex: 1 }} />
           </Row>
 
           <Text weight="semibold" size={13}>

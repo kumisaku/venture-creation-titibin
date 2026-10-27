@@ -46,9 +46,9 @@ export function AppTopBar({ greeting = true }: { greeting?: boolean }) {
 
 // Destination artwork stand-in: a gradient tinted per country.
 const GRADIENTS: Record<string, [string, string]> = {
-  Jepang: ['#1E1B4B', '#BE185D'],
-  Malaysia: ['#0F172A', '#1D4ED8'],
-  Singapura: ['#134E4A', '#0EA5E9'],
+  Jakarta: ['#0F172A', '#1D4ED8'],
+  Tangerang: ['#1E1B4B', '#BE185D'],
+  Bandung: ['#134E4A', '#0EA5E9'],
 };
 
 export function DestinationBanner({ country, stores, photo }: { country: string; stores: string; photo?: string | null }) {
@@ -60,7 +60,7 @@ export function DestinationBanner({ country, stores, photo }: { country: string;
       ) : (
         <LinearGradient colors={[from, to]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ position: 'absolute', inset: 0 }}>
           <Ionicons name="business" size={110} color="#FFFFFF22" style={{ position: 'absolute', right: -6, bottom: -18 }} />
-          <Ionicons name="airplane" size={34} color="#FFFFFF55" style={{ position: 'absolute', left: 16, top: 14 }} />
+          <Ionicons name="location" size={34} color="#FFFFFF55" style={{ position: 'absolute', left: 16, top: 14 }} />
         </LinearGradient>
       )}
       <LinearGradient colors={['transparent', '#000A']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 10, paddingTop: 30 }}>

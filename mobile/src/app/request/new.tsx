@@ -151,12 +151,12 @@ export default function ItemRequestScreen() {
                 <Stepper icon="add" onPress={() => setQuantity((q) => Math.min(99, q + 1))} />
               </Row>
             </View>
-            <Field label="Lokasi Pembelian / Kota Asal" required placeholder="cth. Tokyo, Jepang" value={location} onChangeText={setLocation} />
+            <Field label="Lokasi Pembelian / Kota Asal" required placeholder="cth. Bandung" value={location} onChangeText={setLocation} />
             <Field
               label="Nama Toko Cabang / Area Spesifik"
               rightLabel="Detail lokasi"
               placeholder="cth. Pop Mart Shibuya Parco"
-              hint="Sebutkan nama mall, cabang, atau terminal bandara jika spesifik."
+              hint="Sebutkan nama mall, cabang, atau booth event jika spesifik."
               value={store}
               onChangeText={setStore}
             />

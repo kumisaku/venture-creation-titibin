@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { AppTopBar, DestinationBanner, ratingText } from '@/components/app';
 import { Badge, Button, Card, Chip, EmptyState, ErrorState, Loading, Row, Screen, Text, type IconName } from '@/components/ui';
-import { POPULAR_COUNTRIES } from '@/lib/constants';
+import { REGIONS } from '@/lib/constants';
 import { departLabel, rupiah, tripTitle } from '@/lib/format';
 import { useApi } from '@/lib/hooks';
 import { colors, fonts, radius } from '@/lib/theme';
@@ -15,13 +15,14 @@ export function BuyerHome() {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [country, setCountry] = useState('');
+  const [kind, setKind] = useState<'' | 'trip' | 'event'>('');
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(search.trim()), 350);
     return () => clearTimeout(t);
   }, [search]);
 
-  const path = `/trips?q=${encodeURIComponent(query)}&country=${encodeURIComponent(country)}`;
+  const path = `/trips?q=${encodeURIComponent(query)}&country=${encodeURIComponent(country)}&kind=${kind}`;
   const { data: trips, error, loading, reload } = useApi<Trip[]>(path);
 
   return (
@@ -36,10 +37,10 @@ export function BuyerHome() {
           <Ionicons name="briefcase-outline" size={90} color="#FFFFFF1A" style={{ position: 'absolute', right: -8, bottom: -10 }} />
           <Badge label="Sesama Binusian, Bayar Setelah Invoice" tone="green" icon="shield-checkmark" />
           <Text weight="extrabold" size={21} color={colors.white} style={{ lineHeight: 28 }}>
-            Mau titip apa hari ini dari luar negeri?
+            Mau titip apa hari ini dari sekitarmu?
           </Text>
           <Text size={13} color="#DCE8F8" style={{ lineHeight: 20 }}>
-            Belanja aman lewat teman satu kampus. Biaya transparan, dan kamu baru membayar setelah jastiper membelikan barang dan mengirim invoice.
+            Titip belanjaan dari daerah atau event di sekitarmu lewat teman satu kampus. Biaya transparan, dan kamu baru membayar setelah jastiper membelikan barang dan mengirim invoice.
           </Text>
         </LinearGradient>
 
@@ -61,10 +62,16 @@ export function BuyerHome() {
           </Row>
         </Row>
 
+        <Row style={{ gap: 8 }}>
+          <Chip label="Semua" selected={!kind} onPress={() => setKind('')} />
+          <Chip label="Trip" icon="cart-outline" selected={kind === 'trip'} onPress={() => setKind(kind === 'trip' ? '' : 'trip')} />
+          <Chip label="Event" icon="ticket-outline" selected={kind === 'event'} onPress={() => setKind(kind === 'event' ? '' : 'event')} />
+        </Row>
+
         <View style={{ gap: 10 }}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text weight="bold" size={15}>
-              Destinasi Populer
+              Daerah
             </Text>
             <Pressable onPress={() => setCountry('')}>
               <Text weight="semibold" size={13} color={colors.orangeText}>
@@ -73,7 +80,8 @@ export function BuyerHome() {
             </Pressable>
           </Row>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {POPULAR_COUNTRIES.map((c) => (
+            <Chip label="Semua" selected={!country} onPress={() => setCountry('')} />
+            {REGIONS.map((c) => (
               <Chip key={c} label={c} icon="location-outline" selected={country === c} onPress={() => setCountry(country === c ? '' : c)} />
             ))}
           </ScrollView>
@@ -86,7 +94,7 @@ export function BuyerHome() {
         ) : trips?.length ? (
           trips.map((t) => <TripCard key={t.id} trip={t} />)
         ) : (
-          <EmptyState icon="airplane-outline" title="Belum ada trip" body="Belum ada jastiper ke destinasi ini. Coba buat request titipan." />
+          <EmptyState icon="airplane-outline" title="Belum ada trip" body="Belum ada jastiper ke daerah atau event ini. Coba buat request titipan." />
         )}
 
         <View style={{ backgroundColor: colors.primarySoft, borderRadius: radius.lg, padding: 16, gap: 12 }}>
@@ -141,18 +149,23 @@ function TripCard({ trip }: { trip: Trip }) {
     <Card style={{ gap: 14 }}>
       <Row style={{ gap: 12, alignItems: 'flex-start' }}>
         <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="airplane" size={18} color={colors.primary} />
+          <Ionicons name={trip.kind === 'event' ? 'ticket' : 'cart'} size={18} color={colors.primary} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Row style={{ justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
             <Text weight="bold" size={17} style={{ flexShrink: 1 }}>
               {trip.origin} →
             </Text>
-            <Badge label={label} tone={label === 'Hari ini' ? 'orange' : 'blue'} />
+            <Badge label={trip.kind === 'event' ? `Event • ${label}` : label} tone={label === 'Hari ini' ? 'orange' : 'blue'} />
           </Row>
           <Text weight="extrabold" size={19} color={colors.primary}>
-            {tripTitle(trip.destination, trip.country)}
+            {trip.kind === 'event' ? trip.eventName : tripTitle(trip.destination, trip.country)}
           </Text>
+          {trip.kind === 'event' && (
+            <Text size={12} color={colors.textSoft}>
+              {tripTitle(trip.destination, trip.country)}
+            </Text>
+          )}
           <Text size={12} color={colors.muted}>
             Drop point: {trip.dropPoint}
           </Text>

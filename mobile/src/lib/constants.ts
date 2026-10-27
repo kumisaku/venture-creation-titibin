@@ -20,7 +20,8 @@ export const CATEGORIES: { key: string; label: string; icon: IconName }[] = [
   { key: 'vitamin', label: 'Vitamin & Obat', icon: 'medkit-outline' },
 ];
 
-export const POPULAR_COUNTRIES = ['Jepang', 'Malaysia', 'Singapura', 'Korea Selatan', 'Thailand'];
+/** Jastip is local: trips and events only run in these regions (keep in sync with REGIONS in backend/src/server.js). */
+export const REGIONS = ['Jakarta', 'Tangerang', 'Bekasi', 'Bandung', 'Semarang', 'Malang'];
 
 export const JASTIP_FEE_RATE = 0.2;
 export const APP_FEE_RATE = 0.1;

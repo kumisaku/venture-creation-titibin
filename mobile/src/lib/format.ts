@@ -40,7 +40,7 @@ export const daysUntil = (s: string) => {
 
 export const departLabel = (depart: string, ret: string) => {
   const d = daysUntil(depart);
-  if (d > 0) return d === 1 ? 'Berangkat besok' : `Berangkat dlm ${d} hari`;
+  if (d > 0) return d === 1 ? 'Besok' : `${d} hari lagi`;
   if (d === 0) return 'Hari ini';
   return daysUntil(ret) >= 0 ? 'Sedang di lokasi' : 'Selesai';
 };
@@ -82,7 +82,7 @@ export const progressLabel = (status: OrderStatus, location: string) =>
   ({
     accepted: `Sedang dibelikan di ${location}`,
     bought: 'Dalam perjalanan pulang',
-    arrived: 'Tiba & lolos bea cukai',
+    arrived: 'Sudah di tangan jastiper',
     on_the_way: 'Menuju titik serah terima',
     completed: 'Pesanan selesai',
   } as Partial<Record<OrderStatus, string>>)[status] ?? '';

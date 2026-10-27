@@ -110,6 +110,8 @@ function serializeTrip(t) {
     origin: t.origin,
     destination: t.destination,
     country: t.country,
+    kind: t.kind,
+    eventName: t.event_name,
     stores: t.stores,
     departDate: t.depart_date,
     returnDate: t.return_date,
@@ -294,22 +296,27 @@ app.patch(
 
 // ---------- Trips ----------
 
+// Jastip is local: trips and events only run in these regions (keep in sync with mobile/src/lib/constants.ts).
+const REGIONS = ['Jakarta', 'Tangerang', 'Bekasi', 'Bandung', 'Semarang', 'Malang'];
+
 app.get(
   '/trips',
   route((req) => {
     const q = `%${String(req.query.q ?? '').trim()}%`;
     const country = String(req.query.country ?? '').trim();
+    const kind = String(req.query.kind ?? '').trim();
     const rows = db
       .prepare(
         `SELECT * FROM trips
          WHERE return_date >= date('now')
            AND NOT ${FINISHED_SQL}
            AND jastiper_id != ?
-           AND (destination LIKE ? OR country LIKE ? OR stores LIKE ? OR origin LIKE ?)
+           AND (destination LIKE ? OR country LIKE ? OR stores LIKE ? OR origin LIKE ? OR event_name LIKE ?)
            AND (? = '' OR country = ?)
+           AND (? = '' OR kind = ?)
          ORDER BY depart_date ASC`,
       )
-      .all(req.user.id, q, q, q, q, country, country);
+      .all(req.user.id, q, q, q, q, q, country, country, kind, kind);
     return rows.map(serializeTrip);
   }),
 );
@@ -348,18 +355,22 @@ app.post(
     if (!(capacity > 0)) throw new HttpError(400, 'Kapasitas harus lebih dari 0 kg');
     if (!Array.isArray(b.categories) || b.categories.length === 0) throw new HttpError(400, 'Pilih minimal 1 kategori');
     if (b.returnDate < b.departDate) throw new HttpError(400, 'Tanggal kembali harus setelah berangkat');
-    const [city, country = city] = String(b.destination).split(',').map((s) => s.trim());
+    const kind = b.kind === 'event' ? 'event' : 'trip';
+    const eventName = String(b.eventName ?? '').trim();
+    if (kind === 'event' && !eventName) throw new HttpError(400, 'Isi nama event');
+    const region = String(b.region ?? '').trim();
+    if (!REGIONS.includes(region)) throw new HttpError(400, `Daerah belum didukung. Pilih: ${REGIONS.join(', ')}`);
     const info = db
       .prepare(
         `INSERT INTO trips (jastiper_id, origin, destination, country, stores, depart_date, return_date,
-          capacity_kg, categories, max_budget, drop_point, catalog_photo, hold_over_budget)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          capacity_kg, categories, max_budget, drop_point, catalog_photo, hold_over_budget, kind, event_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         req.user.id,
         b.origin.trim(),
-        city,
-        country,
+        String(b.destination).trim(),
+        region,
         String(b.stores ?? '').trim(),
         b.departDate,
         b.returnDate,
@@ -369,6 +380,8 @@ app.post(
         String(b.dropPoint ?? `Kampus ${b.origin}`).trim(),
         saveUpload(b.catalogPhoto),
         b.holdOverBudget && b.maxBudget ? 1 : 0,
+        kind,
+        eventName,
       );
     return serializeTrip(db.prepare('SELECT * FROM trips WHERE id = ?').get(Number(info.lastInsertRowid)));
   }),

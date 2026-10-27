@@ -18,7 +18,10 @@ export type Trip = {
   id: number;
   origin: string;
   destination: string;
+  /** Region (daerah) the trip or event runs in, one of REGIONS. */
   country: string;
+  kind: 'trip' | 'event';
+  eventName: string;
   stores: string;
   departDate: string;
   returnDate: string;

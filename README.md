@@ -31,7 +31,7 @@ All seeded accounts use the password `titibin123`.
 | Email | Role | What to try |
 | --- | --- | --- |
 | alvin@binus.ac.id | Buyer | Pesanan Saya, track/chat #TB-8829, review #TB-8810 |
-| budi@binus.ac.id | Jastiper | 2 incoming requests, manage Narita trip |
+| budi@binus.ac.id | Jastiper | 2 incoming requests, manage the Pekan Raya Jakarta event |
 | clarissa@binus.ac.id | Jastiper | Accept Alvin's pending Uniqlo request |
 
 Switch role anytime in **Profil** (Titip / Jastiper toggle).

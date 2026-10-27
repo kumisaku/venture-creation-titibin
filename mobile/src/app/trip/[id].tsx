@@ -5,14 +5,14 @@ import { ProductThumb, StatusBadge, TripCapacity } from '@/components/app';
 import { Badge, Button, Card, EmptyState, ErrorState, IconButton, Loading, Row, Screen, ScreenHeader, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { CATEGORIES } from '@/lib/constants';
-import { longDate, rupiah } from '@/lib/format';
+import { longDate, rupiah, tripTitle } from '@/lib/format';
 import { useApi, useAsyncAction } from '@/lib/hooks';
 import { colors, radius } from '@/lib/theme';
 import type { Order, OrderStatus, Trip } from '@/lib/types';
 
 // Buttons that advance the order. 'accepted' and 'on_the_way' open their own screens instead.
 const NEXT_ACTION: Partial<Record<OrderStatus, string>> = {
-  bought: 'Tiba & Lolos Bea Cukai',
+  bought: 'Barang Sudah di Tanganku',
   arrived: 'Menuju Titik Serah Terima',
 };
 
@@ -37,8 +37,13 @@ export default function TripDetailScreen() {
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={false} onRefresh={reload} />}>
           <Card style={{ gap: 10 }}>
             <Text weight="extrabold" size={18}>
-              {trip.destination}, {trip.country}
+              {trip.kind === 'event' ? trip.eventName : tripTitle(trip.destination, trip.country)}
             </Text>
+            {trip.kind === 'event' && (
+              <Text size={13} color={colors.textSoft}>
+                {tripTitle(trip.destination, trip.country)}
+              </Text>
+            )}
             <Row style={{ gap: 6 }}>
               <Ionicons name="calendar-outline" size={14} color={colors.muted} />
               <Text size={13} color={colors.textSoft}>

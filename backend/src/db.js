@@ -111,6 +111,8 @@ function addColumn(table, column, definition) {
 }
 addColumn('users', 'payment_qr', 'TEXT');
 addColumn('trips', 'hold_over_budget', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('trips', 'kind', "TEXT NOT NULL DEFAULT 'trip'");
+addColumn('trips', 'event_name', "TEXT NOT NULL DEFAULT ''");
 addColumn('orders', 'unit_price', 'INTEGER');
 addColumn('orders', 'photos', "TEXT NOT NULL DEFAULT '[]'");
 addColumn('orders', 'invoice_photo', 'TEXT');

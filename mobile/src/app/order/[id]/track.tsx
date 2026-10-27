@@ -35,7 +35,7 @@ export default function TrackingScreen() {
   const city = order.trip?.country ?? order.purchaseLocation;
   const steps = [
     { title: `Pesanan Dibeli di ${order.purchaseLocation}`, body: 'Jastiper membeli dan mengunggah invoice' },
-    { title: 'Tiba di Jakarta & Lolos Bea Cukai', body: 'Barang sudah di Indonesia' },
+    { title: 'Barang Sudah di Tangan Jastiper', body: 'Siap diantar ke kampus' },
     { title: 'Menuju Titik Serah Terima Kampus', body: `Jastiper menuju ${order.handoverPoint}` },
     { title: 'Pemeriksaan Barang & Konfirmasi Terima', body: 'Jastiper scan QR di bawah untuk menyerahkan barang' },
   ];
